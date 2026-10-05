@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS repo_snapshots (
   forks         INT NOT NULL DEFAULT 0,
   open_issues   INT NOT NULL DEFAULT 0,
   watchers      INT,                           -- subscribers; only when FETCH_DETAILS=1
-  collaborators INT,                           -- contributor count proxy; only when FETCH_DETAILS=1
   size_kb       INT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS repo_snapshots_repo_run_uq ON repo_snapshots (repo_id, run_id);
@@ -53,4 +52,4 @@ ALTER TABLE repos DROP COLUMN IF EXISTS is_fork;
 ALTER TABLE repos DROP COLUMN IF EXISTS is_archived;
 ALTER TABLE repos DROP COLUMN IF EXISTS github_created_at;
 ALTER TABLE repos DROP COLUMN IF EXISTS last_pushed_at;
-ALTER TABLE repo_snapshots ADD COLUMN IF NOT EXISTS collaborators INT;
+ALTER TABLE repo_snapshots DROP COLUMN IF EXISTS collaborators;

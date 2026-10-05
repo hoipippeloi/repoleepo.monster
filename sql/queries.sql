@@ -4,7 +4,7 @@
 -- Latest numbers for every repo (numeric stats only)
 SELECT DISTINCT ON (r.id)
   r.full_name, r.owner, s.captured_at,
-  s.stars, s.forks, s.open_issues, s.watchers, s.collaborators
+  s.stars, s.forks, s.open_issues, s.watchers
 FROM repos r
 JOIN repo_snapshots s ON s.repo_id = r.id
 ORDER BY r.id, s.captured_at DESC;

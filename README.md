@@ -2,8 +2,8 @@
 
 A tiny, cheap harvester that runs weekly on [Railway](https://railway.com), pulls repos from
 the GitHub API, **upserts** them into your existing Postgres, and writes one **stats
-snapshot per repo per run** — so every number (collaborators, stars, forks, watchers,
-open issues) becomes a time series. Repo metadata and dev/commit activity are
+snapshot per repo per run** — so every number (stars, forks, watchers, open issues)
+becomes a time series. Repo metadata, dev/commit activity, and collaborator data are
 intentionally not stored: numeric repo stats only.
 
 Zero-config ops: the app creates its own schema on first run, is idempotent (re-running the
@@ -18,6 +18,7 @@ Two source types, combinable via env vars:
 | --- | --- | --- |
 | Your account | `GITHUB_SOURCE_SELF=1` + `GITHUB_TOKEN` | All **public** repos of the token's account via `/user/repos` — owned + collaborator + accessible org repos, paginated, no cap |
 | Org/user repos | `GITHUB_OWNERS=vercel,facebook` | Every public repo of each login, paginated — **no result cap** |
+| Sliced search | `GITHUB_SLICED_SEARCH=created:>=2022-01-01 stars:>=100` | Broad sweeps beyond the 1,000-result search cap — the runner auto-splits the created-date range until every slice fits |
 | Search queries | `GITHUB_SEARCH_QUERIES=stars:>50000 language:rust` | Anything searchable — but GitHub caps search at **1,000 results per query** |
 
 **Honest scope note:** "all repos on GitHub" isn't reachable through the API (hundreds of
@@ -60,10 +61,11 @@ updates never touch existing data.
 | `GITHUB_TOKEN` | empty | GitHub PAT. **Required for `GITHUB_SOURCE_SELF`**, recommended otherwise. |
 | `GITHUB_SOURCE_SELF` | `0` | `1` = track all public repos of the token's own account (`/user/repos?visibility=public`). |
 | `GITHUB_OWNERS` | empty | Comma/space-separated org + user logins. |
-| `GITHUB_SEARCH_QUERIES` | empty | One GitHub search query per line (`;` also separates). |
+| `GITHUB_SEARCH_QUERIES` | empty | One GitHub search query per line (`;` also separates). Capped at 1,000 results each. |
+| `GITHUB_SLICED_SEARCH` | empty | One broad search query per line; must contain `created:>=DATE` or `created:A..B`. Auto-split into date slices to beat the 1,000-result cap. |
 | `INCLUDE_FORKS` | `0` | Also track forks. |
 | `INCLUDE_ARCHIVED` | `1` | Keep snapshotting archived repos (keeps their history continuous). |
-| `FETCH_DETAILS` | `1` | Per repo: 2 extra API calls → `watchers` (subscribers) + `collaborators` (contributor count). Turn off for very large sets (>50k repos). |
+| `FETCH_DETAILS` | `0` | Per repo: 1 extra API call → `watchers` (subscribers). Only worth it for small sets; at 100k+ repos it would blow the weekly API budget. |
 | `DRY_RUN` | `0` | List what *would* be upserted; no DB needed. Perfect for testing config. |
 | `BATCH_SIZE` | `500` | Rows per DB transaction. |
 | `MODE` | `cron` | `cron` = run once and exit. `web` = always-on server with manual trigger. |
@@ -95,14 +97,9 @@ curl -X POST -H "Authorization: Bearer some-secret" http://localhost:8080/run
 - **`repos`** — slim identity registry, one row per GitHub repo (keyed by GitHub's stable
   repo id): name, owner, URL. No metadata, no dev activity — just identity + timestamps.
 - **`repo_snapshots`** — **the time series**: numeric stats only — `stars`, `forks`,
-  `open_issues`, `watchers`, `collaborators`, `size_kb` per repo per run (`run_id` = UTC
-  date). Unique on `(repo_id, run_id)`.
+  `open_issues`, `watchers`, `size_kb` per repo per run (`run_id` = UTC date). Unique on
+  `(repo_id, run_id)`.
 - **`runs`** — audit log per run: status, counts, errors.
-
-> **Where "collaborators" comes from:** GitHub only exposes the true collaborator list to
-> accounts with push access to a repo. For public tracking, the app counts public
-> **contributors** instead — one request per repo (page-count trick on the contributors
-> endpoint). For your own repos the two largely overlap.
 
 Ready-made analysis queries (weekly deltas, top gainers, run history) live in
 [`sql/queries.sql`](sql/queries.sql). Railway's dashboard can run them directly
@@ -112,9 +109,11 @@ Ready-made analysis queries (weekly deltas, top gainers, run history) live in
 
 - The cron service only exists for the minutes it runs each week — **pennies per month** on
   Railway's usage-based billing. The Postgres database is the one you already pay for.
-- GitHub API is free; 5,000 req/h with a token covers ~1,600 repos/hour with
-  `FETCH_DETAILS` on (3 calls per repo), or ~500k repos/hour with it off (1 call per
-  100 repos).
+- GitHub API is free; search sweeps are paced at 30 req/min with a token. A full
+  `created:>=2022-01-01 stars:>=100` sweep (~142k repos, measured 2026-10) is ~1,900
+  search calls ≈ **65–75 min per weekly run** — fine for a Sunday cron.
+- `FETCH_DETAILS=1` adds 1 call per repo — keep it off for the big sweep (142k calls =
+  ~28h on one token); use it only for small sets.
 - Storage: 100k repos ≈ 5.2M snapshot rows/year ≈ a few hundred MB. Fine on any plan;
   if you track millions of repos, consider pruning old snapshots.
 

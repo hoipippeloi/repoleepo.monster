@@ -71,7 +71,6 @@ CREATE TABLE IF NOT EXISTS repo_snapshots (
   forks         INT NOT NULL DEFAULT 0,
   open_issues   INT NOT NULL DEFAULT 0,
   watchers      INT,
-  collaborators INT,
   size_kb       INT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS repo_snapshots_repo_run_uq ON repo_snapshots (repo_id, run_id);
@@ -86,7 +85,7 @@ ALTER TABLE repos DROP COLUMN IF EXISTS is_fork;
 ALTER TABLE repos DROP COLUMN IF EXISTS is_archived;
 ALTER TABLE repos DROP COLUMN IF EXISTS github_created_at;
 ALTER TABLE repos DROP COLUMN IF EXISTS last_pushed_at;
-ALTER TABLE repo_snapshots ADD COLUMN IF NOT EXISTS collaborators INT;
+ALTER TABLE repo_snapshots DROP COLUMN IF EXISTS collaborators;
 `;
 
 export async function ensureSchema() {
@@ -108,14 +107,13 @@ RETURNING (xmax = 0) AS inserted
 `;
 
 const UPSERT_SNAPSHOT = `
-INSERT INTO repo_snapshots (repo_id, run_id, stars, forks, open_issues, watchers, collaborators, size_kb)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+INSERT INTO repo_snapshots (repo_id, run_id, stars, forks, open_issues, watchers, size_kb)
+VALUES ($1,$2,$3,$4,$5,$6,$7)
 ON CONFLICT (repo_id, run_id) DO UPDATE SET
   stars = EXCLUDED.stars,
   forks = EXCLUDED.forks,
   open_issues = EXCLUDED.open_issues,
   watchers = EXCLUDED.watchers,
-  collaborators = EXCLUDED.collaborators,
   size_kb = EXCLUDED.size_kb,
   captured_at = now()
 `;
@@ -139,7 +137,6 @@ export function toMetrics(r, extra) {
     forks: r.forks_count ?? 0,
     openIssues: r.open_issues_count ?? 0,
     watchers: e.watchers ?? null,
-    collaborators: e.collaborators ?? null,
     sizeKb: r.size ?? null,
   };
 }
@@ -163,7 +160,6 @@ export async function flushBuffer(entries, runId) {
         metrics.forks,
         metrics.openIssues,
         metrics.watchers,
-        metrics.collaborators,
         metrics.sizeKb,
       ]);
     }

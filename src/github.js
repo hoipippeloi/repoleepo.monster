@@ -5,12 +5,19 @@ import { config } from './config.js';
 
 const API = 'https://api.github.com';
 const SEARCH_MAX_PAGES = 10; // GitHub hard cap: search returns max 1000 results per query
+const SEARCH_SAFE_TOTAL = 950; // split ranges before hitting the cap
 
 let rateRemaining = null; // last seen x-ratelimit-remaining
 let rateResetEpoch = 0; // x-ratelimit-reset, epoch seconds
+let lastSearchAt = 0; // for search-endpoint pacing
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), '[github]', ...a);
+
+// Search API budget: 30 req/min with a token, 10/min without. Core endpoints
+// (list, repos) are limited per-hour and throttled via the remaining/reset
+// headers; search is per-minute, so we pace it here.
+const searchIntervalMs = () => (config.githubToken ? 2100 : 6500);
 
 function authHeaders() {
   return {
@@ -33,6 +40,11 @@ async function throttle() {
 // Low-level fetch with throttling + retry. Returns the raw Response.
 async function ghFetch(pathOrUrl) {
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : API + pathOrUrl;
+  if (url.includes('/search/')) {
+    const wait = searchIntervalMs() - (Date.now() - lastSearchAt);
+    if (wait > 0) await sleep(wait);
+    lastSearchAt = Date.now();
+  }
   let res;
   for (let attempt = 1; attempt <= 3; attempt++) {
     await throttle();
@@ -100,6 +112,73 @@ async function pagedSearch(query) {
   return out;
 }
 
+// ── Sliced search ────────────────────────────────────────────────────────
+// GitHub caps search at 1,000 results per query, so a broad query like
+// "created:>=2022-01-01 stars:>=100" (140k+ matches) can't be fetched in one
+// go. We recursively split the created-date range until every slice fits
+// under the cap, then page through each slice.
+
+function parseSlicedBounds(query) {
+  let m = query.match(/created:(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})/);
+  if (m) return { token: m[0], start: m[1], end: m[2] };
+  m = query.match(/created:>=\s*(\d{4}-\d{2}-\d{2})/);
+  if (m) return { token: m[0], start: m[1], end: new Date().toISOString().slice(0, 10) };
+  return null;
+}
+
+const dateMid = (a, b) =>
+  new Date(Math.floor((Date.parse(a) + Date.parse(b)) / 2)).toISOString().slice(0, 10);
+const nextDay = (d) => new Date(Date.parse(d) + 86400000).toISOString().slice(0, 10);
+
+export async function* collectSlicedSearch(query) {
+  const bounds = parseSlicedBounds(query);
+  if (!bounds) {
+    throw new Error(
+      `GITHUB_SLICED_SEARCH query needs "created:>=YYYY-MM-DD" or "created:A..B": ${query}`
+    );
+  }
+  log(`sliced search: "${query}" (${bounds.start}..${bounds.end})`);
+  let yielded = 0;
+  yield* (async function* () {
+    yield* searchRange(query, bounds, bounds.start, bounds.end);
+  })();
+  // count via wrapper in collectRepos; this log is per-source detail
+  log(`sliced search done: "${query}"`);
+}
+
+async function* searchRange(baseQuery, bounds, a, b, depth = 0) {
+  const q = baseQuery.replace(bounds.token, `created:${a}..${b}`);
+  const total = await searchTotalCount(q);
+  log(`  slice ${a}..${b}: ${total} repos`);
+  if (total === 0) return;
+  if (total > SEARCH_SAFE_TOTAL && a !== b && depth < 24) {
+    const mid = dateMid(a, b);
+    yield* searchRange(baseQuery, bounds, a, mid, depth + 1);
+    yield* searchRange(baseQuery, bounds, nextDay(mid), b, depth + 1);
+    return;
+  }
+  if (total > SEARCH_SAFE_TOTAL) {
+    log(`  WARNING: slice ${a}..${b} has ${total} results — GitHub caps at 1000, some repos will be missed. Narrow the query.`);
+  }
+  yield* searchPages(q);
+}
+
+async function* searchPages(query) {
+  for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
+    const res = await ghJson(
+      `/search/repositories?q=${encodeURIComponent(query)}&per_page=100&page=${page}&sort=stars&order=desc`
+    );
+    if (!res || !Array.isArray(res.items) || res.items.length === 0) break;
+    for (const r of res.items) yield r;
+    if (res.items.length < 100) break;
+  }
+}
+
+async function searchTotalCount(query) {
+  const res = await ghJson(`/search/repositories?q=${encodeURIComponent(query)}&per_page=1`);
+  return res ? (res.total_count ?? 0) : 0;
+}
+
 function keepRepo(r) {
   if (!config.includeForks && r.fork) return false;
   if (!config.includeArchived && r.archived) return false;
@@ -150,40 +229,22 @@ export async function* collectRepos() {
     log(`search "${query}": ${repos.length} repos`);
   }
 
+  for (const query of config.slicedSearchQueries) {
+    for await (const r of collectSlicedSearch(query)) {
+      if (keepRepo(r)) {
+        yielded++;
+        yield r;
+      }
+    }
+  }
+
   log(`collector finished: ${yielded} repos yielded`);
 }
 
-// Optional per-repo stats pass: watchers (subscribers) + collaborator count.
-// Two API calls per repo — with a token (5,000 req/h) that covers ~1,600 repos/hour.
+// Optional per-repo pass: true watchers (subscribers). One API call per repo —
+// with a token (5,000 req/h) that covers ~5,000 repos/hour. Intended for small
+// sets; leave off (FETCH_DETAILS=0) for large sweeps.
 export async function fetchStats(fullName) {
-  const [detail, collaborators] = await Promise.all([
-    ghJson(`/repos/${fullName}`),
-    fetchCollaboratorCount(fullName),
-  ]);
-  return {
-    watchers: detail ? (detail.subscribers_count ?? null) : null,
-    collaborators,
-  };
-}
-
-// GitHub only exposes the true collaborator list to accounts with push access,
-// so for public repos we count contributors as the proxy: request the list
-// with per_page=1 and read the Link header's rel="last" page number — the
-// total count in a single request.
-async function fetchCollaboratorCount(fullName) {
-  const res = await ghFetch(`/repos/${fullName}/contributors?per_page=1`);
-  if (res.status === 204 || res.status === 404) return 0; // no contributors yet
-  if (!res.ok) {
-    await res.text().catch(() => {}); // drain the socket; don't fail the run over one repo
-    return null;
-  }
-  const link = res.headers.get('link') || '';
-  const last = link.split(',').find((p) => p.includes('rel="last"'));
-  if (last) {
-    const m = last.match(/[?&]page=(\d+)/);
-    if (m) return Number(m[1]);
-  }
-  // No Link header → everything fit on page 1.
-  const items = await res.json().catch(() => []);
-  return Array.isArray(items) ? items.length : 0;
+  const detail = await ghJson(`/repos/${fullName}`);
+  return { watchers: detail ? (detail.subscribers_count ?? null) : null };
 }

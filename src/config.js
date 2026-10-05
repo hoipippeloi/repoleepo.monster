@@ -17,13 +17,14 @@ export const config = {
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
   owners: csv(process.env.GITHUB_OWNERS),
   searchQueries: lines(process.env.GITHUB_SEARCH_QUERIES),
+  slicedSearchQueries: lines(process.env.GITHUB_SLICED_SEARCH),
   selfSource: bool(process.env.GITHUB_SOURCE_SELF, false),
   includeForks: bool(process.env.INCLUDE_FORKS, false),
   // Archived repos keep getting snapshots so their time series stays continuous.
   includeArchived: bool(process.env.INCLUDE_ARCHIVED, true),
-  // On by default: collaborators + watchers are headline stats. Turn off for
-  // very large sets (>50k repos) to run 3x faster on the API budget.
-  fetchDetails: bool(process.env.FETCH_DETAILS, true),
+  // Opt-in: adds true watchers (subscribers) via one extra API call per repo.
+  // Off by default — at 100k+ repos it would blow the weekly API budget.
+  fetchDetails: bool(process.env.FETCH_DETAILS, false),
   dryRun: bool(process.env.DRY_RUN, false),
   mode: (process.env.MODE || 'cron').toLowerCase(), // cron | web
   port: Number(process.env.PORT || 8080),
@@ -34,10 +35,11 @@ export const config = {
 
 export function requireConfig() {
   if (config.dryRun) return; // dry runs never touch the database
-  if (!config.owners.length && !config.searchQueries.length && !config.selfSource) {
+  if (!config.owners.length && !config.searchQueries.length && !config.slicedSearchQueries.length && !config.selfSource) {
     console.error(
       '[config] No sources configured. Set GITHUB_SOURCE_SELF=1 (all public repos of the token\'s account), ' +
-        'GITHUB_OWNERS (comma-separated orgs/users), and/or GITHUB_SEARCH_QUERIES (one GitHub search query per line).'
+        'GITHUB_OWNERS (comma-separated orgs/users), GITHUB_SEARCH_QUERIES (one query per line), ' +
+        'and/or GITHUB_SLICED_SEARCH (broad queries with created:>=DATE, one per line).'
     );
     process.exit(1);
   }
