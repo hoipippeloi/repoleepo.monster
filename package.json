@@ -1,0 +1,16 @@
+{
+  "name": "github-repo-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Weekly GitHub repo harvester — upserts repos + metric snapshots into Postgres (built for Railway internal networking)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "pg": "^8.14.0"
+  }
+}

@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>repoleepo.monster Wiki Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css" media="all" id="hljs-light" disabled />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css" media="all" id="hljs-dark" disabled />
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --surface-hover: #eaeef2;
+      --border: #d0d7de; --text: #1f2328; --text-secondary: #656d76;
+      --accent: #0969da; --accent-hover: #0550ae; --code-bg: #f6f8fa;
+      --code-text: #1f2328; --pre-bg: #ffffff; --quote-border: #d0d7de;
+      --quote-bg: #f6f8fa; --table-stripe: #f6f8fa; --link: #0969da;
+      --hr: #d8dee4; --danger: #cf222e; --sidebar-bg: #f6f8fa;
+      --sidebar-border: #d0d7de; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+      --sidebar-width: 260px; --toolbar-height: 48px;
+    }
+    html[data-theme="dark"], html[data-theme="auto"].system-dark {
+      --bg: #0d1117; --surface: #161b22; --surface-hover: #1c2128;
+      --border: #30363d; --text: #e6edf3; --text-secondary: #8b949e;
+      --accent: #58a6ff; --accent-hover: #79c0ff; --code-bg: #161b22;
+      --code-text: #e6edf3; --pre-bg: #0d1117; --quote-border: #30363d;
+      --quote-bg: #161b22; --table-stripe: #161b22; --link: #58a6ff;
+      --hr: #21262d; --danger: #f85149; --sidebar-bg: #161b22;
+      --sidebar-border: #30363d; --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      font-size: 16px; line-height: 1.7; color: var(--text); background: var(--bg);
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    .app-layout { display: flex; flex: 1; min-height: 0; }
+    .sidebar {
+      width: var(--sidebar-width); flex-shrink: 0; background: var(--sidebar-bg);
+      border-right: 1px solid var(--sidebar-border); display: flex; flex-direction: column;
+      overflow: hidden; height: calc(100vh - var(--toolbar-height));
+      position: sticky; top: var(--toolbar-height);
+    }
+    .sidebar-header {
+      padding: 12px 16px; font-size: 13px; font-weight: 600;
+      color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--sidebar-border); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sidebar-toggle-label { cursor: pointer; color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: normal; font-weight: 500; }
+    .sidebar-toggle-label:hover { text-decoration: underline; }
+    .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+    .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .tree-group-label {
+      padding: 4px 16px 2px; font-size: 11px; font-weight: 600;
+      color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px;
+    }
+    .tree-item {
+      display: flex; align-items: center; gap: 6px; padding: 5px 16px 5px 24px;
+      font-size: 13px; color: var(--text); text-decoration: none; cursor: pointer;
+      transition: background 0.12s; border: none; background: none; width: 100%;
+      text-align: left; font-family: inherit; line-height: 1.4;
+    }
+    .tree-item:hover { background: var(--surface-hover); }
+    .tree-item.active { background: var(--accent); color: #fff; font-weight: 500; }
+    .tree-item .tree-icon { flex-shrink: 0; opacity: 0.6; }
+    .tree-item.active .tree-icon { opacity: 1; }
+    .tree-item .tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .breadcrumb {
+      padding: 8px 24px; font-size: 13px; color: var(--text-secondary);
+      border-bottom: 1px solid var(--border); background: var(--bg);
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    .breadcrumb a { color: var(--link); text-decoration: none; cursor: pointer; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .breadcrumb .separator { color: var(--text-secondary); font-size: 12px; }
+    .breadcrumb .current { color: var(--text); font-weight: 500; }
+    .toolbar {
+      height: var(--toolbar-height); flex-shrink: 0; background: var(--surface);
+      border-bottom: 1px solid var(--border); padding: 0 16px;
+      display: flex; align-items: center; gap: 10px; box-shadow: var(--shadow);
+      position: sticky; top: 0; z-index: 30;
+    }
+    .toolbar .file-name {
+      font-weight: 600; font-size: 13px; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+    }
+    .toolbar button {
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+      transition: background 0.15s; white-space: nowrap;
+    }
+    .toolbar button:hover { background: var(--accent-hover); }
+    .toolbar .nav-btn {
+      background: none; color: var(--text); border: 1px solid var(--border);
+      padding: 4px 8px; display: flex; align-items: center; gap: 2px; font-size: 13px;
+    }
+    .toolbar .nav-btn:hover { background: var(--surface-hover); }
+    .toolbar .nav-btn:disabled { opacity: 0.35; cursor: default; background: none; }
+    .theme-toggle {
+      background: none !important; color: var(--text) !important;
+      border: 1px solid var(--border) !important; padding: 4px 7px !important;
+      display: flex; align-items: center; gap: 4px; font-size: 13px !important;
+      border-radius: 6px; cursor: pointer; flex-shrink: 0;
+    }
+    .theme-toggle:hover { background: var(--surface-hover) !important; }
+    .theme-toggle svg { width: 15px; height: 15px; }
+    .container {
+      flex: 1; overflow-y: auto; padding: 32px 40px 80px;
+      max-width: 960px; margin: 0 auto; width: 100%;
+    }
+    .container::-webkit-scrollbar { width: 8px; }
+    .container::-webkit-scrollbar-track { background: transparent; }
+    .container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
+    .md-body h1 { font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid var(--hr); }
+    .md-body h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--hr); }
+    .md-body h3 { font-size: 1.25em; }
+    .md-body h4 { font-size: 1em; }
+    .md-body h5 { font-size: 0.875em; }
+    .md-body h6 { font-size: 0.85em; color: var(--text-secondary); }
+    .md-body p { margin-bottom: 16px; }
+    .md-body a { color: var(--link); text-decoration: none; cursor: pointer; }
+    .md-body a:hover { text-decoration: underline; }
+    .md-body strong { font-weight: 600; }
+    .md-body del { text-decoration: line-through; color: var(--text-secondary); }
+    .md-body ul,.md-body ol { margin-bottom: 16px; padding-left: 2em; }
+    .md-body li { margin-bottom: 4px; }
+    .md-body li > p { margin-bottom: 8px; }
+    .md-body blockquote { margin: 0 0 16px; padding: 8px 16px; border-left: 4px solid var(--quote-border); background: var(--quote-bg); color: var(--text-secondary); }
+    .md-body code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 85%; background: var(--code-bg); padding: 0.2em 0.4em; border-radius: 6px; color: var(--code-text); }
+    .md-body pre { margin-bottom: 16px; padding: 16px; overflow: auto; border-radius: 8px; background: var(--pre-bg); line-height: 1.5; }
+    .md-body pre code { display: block; background: none; padding: 0; border-radius: 0; font-size: 13px; white-space: pre; word-wrap: normal; }
+    .md-body table { border-collapse: collapse; width: 100%; margin-bottom: 16px; overflow: auto; }
+    .md-body th,.md-body td { border: 1px solid var(--border); padding: 8px 13px; }
+    .md-body th { font-weight: 600; background: var(--surface); }
+    .md-body tr:nth-child(even) td { background: var(--table-stripe); }
+    .md-body hr { border: none; border-top: 2px solid var(--hr); margin: 24px 0; }
+    .md-body img { max-width: 100%; border-radius: 8px; margin: 8px 0; }
+    .md-body input[type="checkbox"] { margin-right: 6px; accent-color: var(--accent); }
+    .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; gap: 20px; }
+    .loading-state .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-state p { color: var(--text-secondary); font-size: 15px; }
+    .error-banner { background: #ffebe9; border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+    html[data-theme="dark"] .error-banner, html[data-theme="auto"].system-dark .error-banner { background: #3d1214; }
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .sidebar.show-mobile { display: flex; position: fixed; inset: 0; z-index: 50; width: 100%; height: 100%; top: var(--toolbar-height); }
+      .container { padding: 20px 16px 60px; }
+      .breadcrumb { padding: 6px 16px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar" id="toolbar">
+    <button class="nav-btn" id="backBtn" title="Back" disabled>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8L2 12L6 16"/><path d="M2 12H22"/></svg>
+    </button>
+    <button class="nav-btn" id="fwdBtn" title="Forward" disabled>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8L22 12L18 16"/><path d="M2 12H22"/></svg>
+    </button>
+    <span class="file-name" id="fileName">repoleepo.monster Wiki</span>
+    <button id="sidebarToggle" title="Toggle sidebar">&#9776;</button>
+    <button id="homeBtn">Home</button>
+    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x21="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="app-layout">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span>Wiki Pages</span>
+        <span class="sidebar-toggle-label" id="closeSidebarBtn">&#215; close</span>
+      </div>
+      <div class="sidebar-scroll" id="sidebarScroll"></div>
+    </nav>
+
+    <div class="main-area">
+      <div class="breadcrumb" id="breadcrumb">
+        <a id="breadcrumbHome">Wiki</a>
+        <span class="separator">/</span>
+        <span class="current" id="breadcrumbCurrent">loading...</span>
+      </div>
+      <div class="container" id="container">
+        <article class="md-body" id="output">
+          <div class="loading-state"><div class="spinner"></div><p>Loading wiki...</p></div>
+        </article>
+      </div>
+    </div>
+  </div>
+
+  <script>
+var WIKI_CONTENT = {
+  "architecture/file-tree.md": `---
+type: Artifact
+title: File tree
+description: Complete project file listing with per-file descriptions.
+timestamp: "2026-10-05T17:10:53.541Z"
+---
+
+# File tree — generated 2026-10-05T17:10:53.541Z
+# Respects .wiki_ignore exclusions.
+# [description] — shorthand summary of each file's function
+
+.
+├── .pi/ — Pi coding agent's project-local state directory
+│   └── todos/ — File-based todo storage for the pi agent (one markdown file per task, TODO-<hex>); currently empty
+├── docs/ — Project documentation root
+│   └── wiki/ — OKF v0.1 knowledge wiki bundle documenting this project
+│       ├── index.md — Wiki entry point; links to overview, file tree, glossary, and pages
+│       ├── overview.md — System overview: what the project contains and how it is organized
+│       ├── glossary.md — Key project terms and definitions
+│       ├── architecture/ — Architecture documentation
+│       │   └── file-tree.md — Artifact: complete annotated project file listing (this file)
+│       ├── last_updated.md — Sync timestamp consumed by wiki staleness detection
+│       ├── log.md — Running changelog of wiki updates
+│       └── pages/ — Knowledge graph: concepts, entities, and artifacts
+│           ├── index.md — Pages index linking the three collections
+│           ├── TEMPLATES.md — Reference templates for Concept, Entity, and Artifact pages
+│           ├── concepts/ — Abstract ideas, definitions, categories (empty, awaiting first pages)
+│           ├── entities/ — Concrete named things: systems, tools, records (empty, awaiting first pages)
+│           └── artifacts/ — Documents, diagrams, code files, deliverables (empty, awaiting first pages)
+└── .wiki_ignore — Exclusion patterns for wiki staleness detection (wiki itself, build/cache dirs)
+`,
+  "glossary.md": `---
+type: Glossary
+title: Glossary
+description: Key terms for this project.
+timestamp: "2026-10-05T17:10:53.541Z"
+---
+
+# Glossary
+
+| Term | Definition |
+|------|------------|
+| OKF (Open Knowledge Format) | File-based wiki convention (v0.1): markdown documents with YAML frontmatter (\`type\`, \`title\`, \`description\`, \`timestamp\`) organized into an indexable bundle. This project's wiki is an OKF bundle. |
+| Wiki bundle | The complete \`docs/wiki/\` tree — entry point \`index.md\`, system docs, and the \`pages/\` knowledge graph. |
+| pi | The coding agent harness working in this workspace. Stores project-local state under \`.pi/\` and provides the wiki tools that read and write this bundle. |
+| \`.pi/todos/\` | File-based todo storage for pi — one markdown file per task, identified as \`TODO-<hex>\`. Currently empty. |
+| \`.wiki_ignore\` | Gitignore-style pattern file listing paths excluded from wiki staleness detection (the wiki itself plus common build/cache directories). |
+| Staleness detection | Mechanism comparing workspace changes against \`docs/wiki/last_updated.md\` (honoring \`.wiki_ignore\`) to flag when the wiki is out of date. |
+| Concept | Wiki page type for abstract ideas, definitions, and categories. Collected in \`pages/concepts/\`. |
+| Entity | Wiki page type for concrete named things — systems, tools, records. Collected in \`pages/entities/\`. |
+| Artifact | Wiki page type for documents, diagrams, and deliverables. Collected in \`pages/artifacts/\`. |
+| Wikilink | \`[[slug]]\` cross-reference syntax in wiki pages, auto-converted to markdown links between pages. |
+| \`/wiki:init\` | The pi command that scaffolded this bundle on 2026-10-05. |
+`,
+  "index.md": `---
+okf_version: "0.1"
+---
+
+# Project Knowledge Wiki
+
+<!-- wiki-nav:start -->
+## Navigation map
+
+Auto-generated detailed index of every docs/wiki/ concept — the map the LLM uses to locate information. 4 concept(s). Regenerated on init and on wiki_mark_synced. Generated 2026-10-05T17:11:55.968Z.
+
+Each entry: [title](concept-id.md) — description. Links are clickable in /wiki; pass the concept-id (link target minus .md) to wiki_get.
+
+### Core concepts
+
+- [Glossary](glossary.md) — Key terms for this project.
+- [Overview](overview.md) — What this project contains and its structure.
+
+### Architecture
+
+- [File tree](architecture/file-tree.md) — Complete project file listing with per-file descriptions.
+
+### Pages
+
+- [Page Templates](pages/TEMPLATES.md) — Reference templates for Concept, Entity, and Artifact pages. Follow these when using wiki_note_page.
+<!-- wiki-nav:end -->
+
+An [OKF](https://github.com/earendil-works/okf) bundle documenting this project.
+
+- [Overview](./overview.md) — What this project contains and its structure
+- [File tree](./architecture/file-tree.md) — Complete project file listing
+- [Glossary](./glossary.md) — Key terms for this project
+- [Pages](./pages/) — Concepts, entities, and artifacts of this project
+`,
+  "memory.md": `---
+okf_version: "0.1"
+---
+
+<!-- wiki-memory:start -->
+# Memory — the live contract
+
+Auto-generated digest of the most recent conventions, decisions, rules and
+development patterns, plus architecture and global patterns — newest first.
+The actual files live in the wiki subfolders; follow the links (clickable in /wiki).
+Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-05T17:27:30.141Z.
+
+## Architecture
+
+- [File tree](architecture/file-tree.md) — Complete project file listing with per-file descriptions. (2026-10-05)
+
+## Global Patterns
+
+- [Railway Cron + Internal Networking Pattern](pages/concepts/railway-cron-internal-networking-pattern.md) — The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with… (2026-10-05)
+
+<!-- wiki-memory:end -->
+`,
+  "overview.md": `---
+type: System Overview
+title: Overview
+description: What this project contains and its structure.
+timestamp: "2026-10-05T17:10:53.541Z"
+---
+
+# Overview
+
+**repoleepo.monster** is a documentation-first project workspace. Its entire current content is a freshly scaffolded project knowledge wiki built on the [Open Knowledge Format](https://github.com/earendil-works/okf) (OKF v0.1) under \`docs/wiki/\`, together with the supporting state needed to keep that wiki healthy. There is no application source code yet: the repository is the knowledge base that will grow alongside — and ahead of — whatever code the project accumulates.
+
+The workspace is organized around three top-level entries. \`.pi/\` is the pi coding agent's project-local state directory — currently just an empty \`todos/\` folder, where file-based task records (one markdown file per todo, identified as \`TODO-<hex>\`) will live as work items are created. \`.wiki_ignore\` is a gitignore-style pattern file that excludes paths from wiki staleness detection; it ignores the wiki itself (so wiki edits never mark the wiki stale) and common build/dependency/cache directories (\`node_modules/\`, \`dist/\`, \`build/\`, \`.next/\`, \`.cache/\`, \`__pycache__/\`, \`.DS_Store\`). \`docs/\` holds the wiki bundle itself.
+
+Inside \`docs/wiki/\`, \`index.md\` is the entry point and links to the three top-level system documents: \`overview.md\` (this file), \`glossary.md\` (key terms), and \`architecture/file-tree.md\` (a complete annotated file listing). \`pages/\` holds the knowledge graph — three collections (\`concepts/\`, \`entities/\`, \`artifacts/\`) for abstract ideas, concrete named things, and deliverables respectively — seeded from the reference templates in \`pages/TEMPLATES.md\`. \`log.md\` records wiki changes, and \`last_updated.md\` carries the sync timestamp consumed by staleness detection.
+
+The bundle was scaffolded by \`/wiki:init\` on 2026-10-05 and populated with its first real content in the same session. Conventions going forward: new knowledge is recorded via the \`wiki_note_*\` tools (or hand-written pages following \`TEMPLATES.md\`), pages cross-link with \`[[wikilinks]]\`, and \`last_updated.md\` is bumped whenever the wiki is brought back in sync with the rest of the workspace.
+`,
+  "pages/artifacts/index.md": `# Artifacts
+
+_Documents, diagrams, and deliverables will be listed here._
+`,
+  "pages/concepts/index.md": `# Concepts
+
+_Abstract ideas and definitions will be listed here._
+- [Railway Cron + Internal Networking Pattern](./railway-cron-internal-networking-pattern.md) - The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via int
+`,
+  "pages/concepts/railway-cron-internal-networking-pattern.md": `---
+type: Concept
+title: Railway Cron + Internal Networking Pattern
+description: "The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via int"
+tags: [railway, devops, deployment]
+timestamp: "2026-10-05T17:27:30.135Z"
+---
+
+# Railway Cron + Internal Networking Pattern
+
+The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via internal DNS (\`<service>.railway.internal\`, Wireguard-encrypted, no public exposure, no egress cost).
+
+## Key facts (verified against docs.railway.com, 2026-10-05)
+
+- **Reference variables**: \`\${{ SERVICE_NAME.VAR }}\` — e.g. set \`DATABASE_URL = \${{ Postgres.DATABASE_URL }}\` on the app service; the variables editor autocompletes. This copies the DB service's connection string, which uses the internal hostname.
+- **Cron services**: Settings → "Cron Schedule", standard crontab, **UTC** (0 = Sunday). The service is expected to execute its task and **exit leaving no open resources** (close DB connections!) — otherwise subsequent scheduled runs are skipped while a deployment is \`Active\`.
+- **Runs must be ≥ 5 minutes apart**; execution time can vary by a few minutes.
+- **No "run now" button** for cron services — to trigger off-schedule, temporarily set the schedule to \`* * * * *\`, or run locally against the DB's \`DATABASE_PUBLIC_URL\`.
+- **Restart policy**: \`ON_FAILURE\` with retries makes sense for cron (a failed weekly run retries immediately; idempotent runs make this safe), \`NEVER\` would wait a whole week.
+- **TLS**: internal Postgres connections need no SSL; the public TCP proxy does (\`ssl: { rejectUnauthorized: false }\` in node-postgres).
+
+## Source
+
+- \`https://docs.railway.com/cron-jobs.md\` (docs pages are fetchable by appending \`.md\`)
+- \`src/db.js\` (pool closes cleanly), \`src/index.js\` (exits after run), \`railway.json\`, \`README.md\` deploy guide
+`,
+  "pages/entities/github-repo-tracker.md": `---
+type: Entity
+title: GitHub Repo Tracker
+description: Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the
+tags: [backend, data, railway, github]
+timestamp: "2026-10-05T17:27:30.135Z"
+---
+
+# GitHub Repo Tracker
+
+Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the project's Postgres over Railway private networking.
+
+Its role: turn GitHub repo metrics into a time series. Every Sunday (\`0 3 * * 0\` UTC) it pulls repos from configured sources, upserts them into \`repos\`, writes one \`repo_snapshots\` row per repo (stars, forks, open_issues, watchers, size_kb), and logs the run in \`runs\`. Keyed by GitHub's stable repo id, so renames and cross-source duplicates are deduplicated; same-day reruns are idempotent.
+
+## Details
+
+- **Location**: repo root of \`E:/repoleepo.monster\` — \`src/\` (6 modules), \`sql/\`, \`Dockerfile\`, \`railway.json\`, \`README.md\`
+- **Interface**: \`MODE=cron\` (default) runs one harvest and exits cleanly (Railway cron requirement: process terminates, DB pool closed). \`MODE=web\` serves \`/healthz\` and \`POST /run\` (Bearer \`RUN_TOKEN\`) for manual triggering
+- **Data model**: \`repos\` (current state), \`repo_snapshots\` (time series, unique \`(repo_id, run_id)\`), \`runs\` (audit). Schema auto-applies via \`CREATE TABLE IF NOT EXISTS\` — see \`sql/schema.sql\`, analysis recipes in \`sql/queries.sql\`
+- **Configuration**: all env — \`DATABASE_URL\` (Railway reference \`\${{ Postgres.DATABASE_URL }}\` for internal networking), \`GITHUB_TOKEN\`, \`GITHUB_OWNERS\` (org/user listing, no cap), \`GITHUB_SEARCH_QUERIES\` (capped at 1,000 results/query by GitHub), \`FETCH_DETAILS\`, \`DRY_RUN\`, \`INCLUDE_FORKS\`/\`INCLUDE_ARCHIVED\`
+- **Dependencies**: Node ≥ 20, single runtime dep \`pg\`. Dockerfile on \`node:22-slim\`; \`railway.json\` sets ON_FAILURE restart policy (max 3) so a failed weekly run retries instead of waiting a week
+- [railway-cron-internal-networking](./railway-cron-internal-networking.md) — deployment pattern it relies on
+
+## Lifecycle
+
+- First added: 2026-10-05 — built to track repo metrics over time for repoleepo.monster
+- Verification: live GitHub dry-runs (owner + search sources, fork filtering, pagination), web-mode auth checks; DB path not exercised locally (no Docker/Postgres on the build machine) — first Railway deploy is the e2e test
+`,
+  "pages/entities/index.md": `# Entities
+
+_Concrete named things will be listed here._
+- [GitHub Repo Tracker](./github-repo-tracker.md) - Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the
+`,
+  "pages/index.md": `
+- [Railway Cron + Internal Networking Pattern](./concepts/railway-cron-internal-networking-pattern.md) — The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via int
+`,
+  "pages/TEMPLATES.md": `---
+type: Concept
+title: Page Templates
+description: Reference templates for Concept, Entity, and Artifact pages. Follow these when using wiki_note_page.
+timestamp: 2026-10-05T17:09:21.383Z
+---
+# Page Templates
+
+Use these when documenting the projectbase with \`wiki_note_page\`. Each type has
+a stable structure so pages are consistent, skimmable, and well-linked.
+
+## Concept (abstract ideas, definitions, patterns, categories)
+
+\`\`\`markdown
+## What is it?
+[One paragraph — clear definition the team can agree on.]
+
+## Why does it matter?
+[What problem it solves, what depends on it, or what would break without it.]
+
+## Key rules / properties
+- [Characteristic or invariant]
+- [Edge case to watch for]
+
+## Relationships
+- [[entity-that-implements-this]] — how
+- [[related-concept]] — how
+
+## Source
+- \\\`path/to/file.ts\\\` — implements or references this concept
+\`\`\`
+
+## Entity (concrete named things: endpoints, services, models, tools)
+
+\`\`\`markdown
+## What is it?
+[Concrete thing — what it IS, where it lives.]
+
+## Why does it matter?
+[Its role in the system, who/what depends on it.]
+
+## Details
+- **Location**: \\\`path/to/file\\\`
+- **Interface / Schema**: [key fields, methods, routes, or shape]
+- **Configuration**: [env vars, flags, settings]
+
+## Relationships
+- [[concept-it-implements]] — what abstract idea this instantiates
+- [[entity-it-depends-on]] — dependency or peer
+
+## Lifecycle
+- First added: [when, why]
+- Significant changes: [date — what changed]
+\`\`\`
+
+## Artifact (deliverables: diagrams, reports, specs, configs, screenshots)
+
+\`\`\`markdown
+## What is it?
+[Document, diagram, report, or file — what it contains.]
+
+## What it documents
+- [[entity-or-concept]] — what this artifact describes or supports
+
+## Details
+- **Format**: [diagram type, file format, tool used]
+- **Location**: \\\`path/to/file\\\`
+
+## Source
+- Generated from: [what data, process, or session produced it]
+\`\`\`
+`,
+};
+var WIKI_PAGES = [
+    { path: "index.md", label: "Project Knowledge Wiki", group: "" },
+    { path: "glossary.md", label: "Glossary", group: "" },
+    { path: "memory.md", label: "Memory — the live contract", group: "" },
+    { path: "overview.md", label: "Overview", group: "" },
+    { path: "architecture/file-tree.md", label: "File tree", group: "Architecture" },
+    { path: "pages/index.md", label: "Index", group: "Pages" },
+    { path: "pages/TEMPLATES.md", label: "Page Templates", group: "Pages" },
+    { path: "pages/artifacts/index.md", label: "Artifacts", group: "Pages / Artifacts" },
+    { path: "pages/concepts/index.md", label: "Concepts", group: "Pages / Concepts" },
+    { path: "pages/concepts/railway-cron-internal-networking-pattern.md", label: "Railway Cron + Internal Networking Pattern", group: "Pages / Concepts" },
+    { path: "pages/entities/index.md", label: "Entities", group: "Pages / Entities" },
+    { path: "pages/entities/github-repo-tracker.md", label: "GitHub Repo Tracker", group: "Pages / Entities" }
+];
+(function(){
+var a=document.getElementById("hljs-light"),d=document.getElementById("hljs-dark"),t=document.getElementById("themeToggle"),i=document.getElementById("themeIcon");
+function g(){try{return localStorage.getItem("mdv-theme")||"auto"}catch(e){return"auto"}}
+function l(o){var h=document.documentElement;h.setAttribute("data-theme",o);var k=o==="dark"||(o==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);h.classList.toggle("system-dark",o==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);a.disabled=k;d.disabled=!k;i.innerHTML=k?'<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>':'<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>';t.title=k?"Switch to light mode":"Switch to dark mode"}
+l(g());t.addEventListener("click",function(){var o=g(),h=o==="auto"?"light":o==="light"?"dark":"auto";try{localStorage.setItem("mdv-theme",h)}catch(e){}l(h)});window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){if(g()==="auto")l("auto")});
+var s=document.getElementById("sidebar"),sc=document.getElementById("sidebarScroll"),o=document.getElementById("output"),fn=document.getElementById("fileName"),bc=document.getElementById("breadcrumbCurrent"),bh=document.getElementById("breadcrumbHome"),bb=document.getElementById("backBtn"),fb=document.getElementById("fwdBtn"),hm=document.getElementById("homeBtn"),st=document.getElementById("sidebarToggle"),cs=document.getElementById("closeSidebarBtn"),cp="index.md",hs=[],hi=-1;
+function es(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function at(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
+function rl(fp,ln){if(/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(ln))return null;if(ln.startsWith("#"))return null;var d=fp.lastIndexOf("/"),r=d>=0?fp.substring(0,d)+"/"+ln:ln;r=r.replace(/^\.\//,"");if(r.endsWith("/"))r+="index.md";if(!r.endsWith(".md"))r+="/index.md";r=r.replace(/\/\//g,"/");var p=r.split("/"),o=[];for(var i=0;i<p.length;i++){if(p[i]===".")continue;if(p[i]===".."&&o.length>0)o.pop();else if(p[i]!=="")o.push(p[i])}return o.join("/")}
+function fm(p){return WIKI_CONTENT[p]?Promise.resolve(WIKI_CONTENT[p]):Promise.reject(new Error('Page "'+p+'" not found'))}
+function rm(t,p){var c=t.replace(/^---[\s\S]*?---\s*/,""),h;if(typeof marked!=="undefined"){marked.setOptions({gfm:true,breaks:false});h=marked.parse(c)}else{h="<pre>"+es(c)+"</pre>"}o.innerHTML=h;if(typeof hljs!=="undefined"){o.querySelectorAll("pre code").forEach(function(b){hljs.highlightElement(b)})}o.querySelectorAll("a").forEach(function(a){var h=a.getAttribute("href");if(!h)return;if(/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(h)){a.setAttribute("target","_blank");a.setAttribute("rel","noopener noreferrer");return}if(h.startsWith("#")){a.addEventListener("click",function(e){e.preventDefault();var el=document.getElementById(h.substring(1));if(el)el.scrollIntoView({behavior:"smooth"})});return}a.addEventListener("click",function(e){e.preventDefault();var r=rl(p,h);if(r)nn(r)})});var h1=o.querySelector("h1");return h1?h1.textContent:p.replace(/\.md$/,"").split("/").pop()}
+function nn(p,ph){if(ph===undefined)ph=true;p=p.replace(/^\.\//,"");if(p.endsWith("/"))p+="index.md";if(!p.endsWith(".md"))p+="/index.md";var pp=cp;cp=p;us(p);o.innerHTML='<div class="loading-state"><div class="spinner"></div><p>Loading '+es(p)+'...</p></div>';fm(p).then(function(t){var ti=rm(t,p);fn.textContent=ti;bc.textContent=ti;if(ph){hs=hs.slice(0,hi+1);hs.push(p);hi=hs.length-1;ub();try{window.history.pushState({path:p},"","#"+p)}catch(e){}}}).catch(function(e){o.innerHTML='<div class="error-banner">Could not load <strong>'+es(p)+"</strong>: "+es(e.message)+"</div>";fn.textContent="Error";bc.textContent="Error loading page";cp=pp;us(cp)})}
+function us(p){sc.querySelectorAll(".tree-item").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-path")===p)})}
+function ub(){bb.disabled=hi<=0;fb.disabled=hi>=hs.length-1}
+function gb(){if(hi>0){hi--;nn(hs[hi],false);ub();try{window.history.replaceState({path:hs[hi]},"","#"+hs[hi])}catch(e){}}}
+function gf(){if(hi<hs.length-1){hi++;nn(hs[hi],false);ub();try{window.history.replaceState({path:hs[hi]},"","#"+hs[hi])}catch(e){}}}
+function gh(){nn("index.md")}
+function bt(){var g={};WIKI_PAGES.forEach(function(p){var gr=p.group||"";if(!g[gr])g[gr]=[];g[gr].push(p)});var gn=Object.keys(g).sort(function(a,b){if(a===""||a==="Architecture")return -1;if(b===""||b==="Architecture")return 1;return a.localeCompare(b)});var h="";gn.forEach(function(gr){if(gr)h+='<div class="tree-group-label">'+es(gr)+"</div>";g[gr].forEach(function(p){h+='<button class="tree-item'+(p.path===cp?" active":"")+'" data-path="'+at(p.path)+'"><svg class="tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="tree-label">'+es(p.label)+"</span></button>"})});sc.innerHTML=h;sc.querySelectorAll(".tree-item").forEach(function(b){b.addEventListener("click",function(){nn(b.getAttribute("data-path"));if(window.innerWidth<=768)s.classList.remove("show-mobile")})})}
+bb.addEventListener("click",gb);fb.addEventListener("click",gf);hm.addEventListener("click",gh);bh.addEventListener("click",gh);st.addEventListener("click",function(){if(window.innerWidth<=768){s.classList.toggle("show-mobile")}else{s.style.display=s.style.display==="none"?"flex":"none"}});cs.addEventListener("click",function(){s.style.display="none"});window.addEventListener("popstate",function(e){if(e.state&&e.state.path){var idx=hs.indexOf(e.state.path);if(idx>=0){hi=idx;nn(e.state.path,false);ub()}else{nn(e.state.path)}}});
+bt();var ip="index.md";if(window.location.hash){var hp=window.location.hash.substring(1);if(hp.endsWith(".md")||hp.endsWith("/")){ip=hp.replace(/^\.\//,"");if(ip.endsWith("/"))ip+="index.md"}}nn(ip,true);
+})();
+  </script>
+</body>
+</html>
