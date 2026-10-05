@@ -111,6 +111,18 @@ function keepRepo(r) {
 export async function* collectRepos() {
   let yielded = 0;
 
+  if (config.selfSource) {
+    log('listing your public repos via /user/repos...');
+    const repos = await pagedList('/user/repos?visibility=public');
+    for (const r of repos) {
+      if (keepRepo(r)) {
+        yielded++;
+        yield r;
+      }
+    }
+    log(`self source: ${repos.length} public repos`);
+  }
+
   for (const owner of config.owners) {
     log(`listing repos for "${owner}"...`);
     // /users/{login}/repos works for both users AND orgs; fall back to /orgs.

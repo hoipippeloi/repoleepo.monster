@@ -16,6 +16,7 @@ Two source types, combinable via env vars:
 
 | Source | Env var | Reach |
 | --- | --- | --- |
+| Your account | `GITHUB_SOURCE_SELF=1` + `GITHUB_TOKEN` | All **public** repos of the token's account via `/user/repos` — owned + collaborator + accessible org repos, paginated, no cap |
 | Org/user repos | `GITHUB_OWNERS=vercel,facebook` | Every public repo of each login, paginated — **no result cap** |
 | Search queries | `GITHUB_SEARCH_QUERIES=stars:>50000 language:rust` | Anything searchable — but GitHub caps search at **1,000 results per query** |
 
@@ -35,8 +36,8 @@ across sources are deduplicated by GitHub repo id.
    | Variable | Value |
    | --- | --- |
    | `DATABASE_URL` | `${{ Postgres.DATABASE_URL }}` — a *reference* to your DB service (type `${{` and use the autocomplete; replace `Postgres` with your DB service's real name). This uses the internal `*.railway.internal` hostname, so traffic never leaves the private network: no public exposure, no egress cost. |
-   | `GITHUB_TOKEN` | A GitHub classic PAT with **no scopes** (public data only). Raises you from 60 → 5,000 requests/hour. |
-   | `GITHUB_OWNERS` and/or `GITHUB_SEARCH_QUERIES` | See table above. |
+   | `GITHUB_TOKEN` | A GitHub classic PAT. Use a **scopeless** PAT for public data; if you set `GITHUB_SOURCE_SELF=1`, any PAT authorized as you works — `/user/repos?visibility=public` only returns public repos. |
+   | `GITHUB_SOURCE_SELF=1` and/or `GITHUB_OWNERS` and/or `GITHUB_SEARCH_QUERIES` | Sources — see table above. For "all my repos" tracking, just `GITHUB_SOURCE_SELF=1` + the token. |
 4. **Settings → Cron Schedule**: `0 3 * * 0` — every **Sunday 03:00 UTC** (cron is UTC; 0 = Sunday). Adjust the hour to your taste.
 5. **First run:** cron services wait for their schedule — to see it work immediately,
    either set the schedule temporarily to `* * * * *` (runs within 5 minutes; revert after)
@@ -56,7 +57,8 @@ updates never touch existing data.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DATABASE_URL` | — (required) | Postgres connection string. Use `${{ Postgres.DATABASE_URL }}` on Railway. |
-| `GITHUB_TOKEN` | empty | GitHub PAT. Optional but strongly recommended. |
+| `GITHUB_TOKEN` | empty | GitHub PAT. **Required for `GITHUB_SOURCE_SELF`**, recommended otherwise. |
+| `GITHUB_SOURCE_SELF` | `0` | `1` = track all public repos of the token's own account (`/user/repos?visibility=public`). |
 | `GITHUB_OWNERS` | empty | Comma/space-separated org + user logins. |
 | `GITHUB_SEARCH_QUERIES` | empty | One GitHub search query per line (`;` also separates). |
 | `INCLUDE_FORKS` | `0` | Also track forks. |

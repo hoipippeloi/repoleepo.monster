@@ -17,6 +17,7 @@ export const config = {
   githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
   owners: csv(process.env.GITHUB_OWNERS),
   searchQueries: lines(process.env.GITHUB_SEARCH_QUERIES),
+  selfSource: bool(process.env.GITHUB_SOURCE_SELF, false),
   includeForks: bool(process.env.INCLUDE_FORKS, false),
   // Archived repos keep getting snapshots so their time series stays continuous.
   includeArchived: bool(process.env.INCLUDE_ARCHIVED, true),
@@ -33,10 +34,16 @@ export const config = {
 
 export function requireConfig() {
   if (config.dryRun) return; // dry runs never touch the database
-  if (!config.owners.length && !config.searchQueries.length) {
+  if (!config.owners.length && !config.searchQueries.length && !config.selfSource) {
     console.error(
-      '[config] No sources configured. Set GITHUB_OWNERS (comma-separated orgs/users) ' +
-        'and/or GITHUB_SEARCH_QUERIES (one GitHub search query per line).'
+      '[config] No sources configured. Set GITHUB_SOURCE_SELF=1 (all public repos of the token\'s account), ' +
+        'GITHUB_OWNERS (comma-separated orgs/users), and/or GITHUB_SEARCH_QUERIES (one GitHub search query per line).'
+    );
+    process.exit(1);
+  }
+  if (config.selfSource && !config.githubToken) {
+    console.error(
+      '[config] GITHUB_SOURCE_SELF=1 needs GITHUB_TOKEN — /user/repos is an authenticated endpoint.'
     );
     process.exit(1);
   }
