@@ -1,10 +1,10 @@
 -- Handy queries for the repo tracker. Run these in the Railway dashboard's
 -- Data tab (Postgres service → Data → query) or any psql client.
 
--- Latest numbers for every repo
+-- Latest numbers for every repo (numeric stats only)
 SELECT DISTINCT ON (r.id)
-  r.full_name, r.owner, r.language, r.is_archived,
-  s.captured_at, s.stars, s.forks, s.open_issues, s.watchers
+  r.full_name, r.owner, s.captured_at,
+  s.stars, s.forks, s.open_issues, s.watchers, s.collaborators
 FROM repos r
 JOIN repo_snapshots s ON s.repo_id = r.id
 ORDER BY r.id, s.captured_at DESC;

@@ -30,7 +30,8 @@ async function throttle() {
   }
 }
 
-async function ghJson(pathOrUrl) {
+// Low-level fetch with throttling + retry. Returns the raw Response.
+async function ghFetch(pathOrUrl) {
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : API + pathOrUrl;
   let res;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -54,11 +55,15 @@ async function ghJson(pathOrUrl) {
     }
     break;
   }
+  return res;
+}
 
+async function ghJson(pathOrUrl) {
+  const res = await ghFetch(pathOrUrl);
   if (res.status === 404) return null;
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`GitHub API ${res.status} on ${url}: ${body.slice(0, 300)}`);
+    throw new Error(`GitHub API ${res.status} on ${pathOrUrl.startsWith('http') ? pathOrUrl : API + pathOrUrl}: ${body.slice(0, 300)}`);
   }
   return res.json();
 }
@@ -136,8 +141,37 @@ export async function* collectRepos() {
   log(`collector finished: ${yielded} repos yielded`);
 }
 
-// Optional per-repo detail pass (adds subscribers_count). One API call per repo,
-// so only worth it for small sets; 5000 req/h on a token.
-export async function fetchDetail(fullName) {
-  return ghJson(`/repos/${fullName}`);
+// Optional per-repo stats pass: watchers (subscribers) + collaborator count.
+// Two API calls per repo — with a token (5,000 req/h) that covers ~1,600 repos/hour.
+export async function fetchStats(fullName) {
+  const [detail, collaborators] = await Promise.all([
+    ghJson(`/repos/${fullName}`),
+    fetchCollaboratorCount(fullName),
+  ]);
+  return {
+    watchers: detail ? (detail.subscribers_count ?? null) : null,
+    collaborators,
+  };
+}
+
+// GitHub only exposes the true collaborator list to accounts with push access,
+// so for public repos we count contributors as the proxy: request the list
+// with per_page=1 and read the Link header's rel="last" page number — the
+// total count in a single request.
+async function fetchCollaboratorCount(fullName) {
+  const res = await ghFetch(`/repos/${fullName}/contributors?per_page=1`);
+  if (res.status === 204 || res.status === 404) return 0; // no contributors yet
+  if (!res.ok) {
+    await res.text().catch(() => {}); // drain the socket; don't fail the run over one repo
+    return null;
+  }
+  const link = res.headers.get('link') || '';
+  const last = link.split(',').find((p) => p.includes('rel="last"'));
+  if (last) {
+    const m = last.match(/[?&]page=(\d+)/);
+    if (m) return Number(m[1]);
+  }
+  // No Link header → everything fit on page 1.
+  const items = await res.json().catch(() => []);
+  return Array.isArray(items) ? items.length : 0;
 }

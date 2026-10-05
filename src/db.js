@@ -47,39 +47,46 @@ CREATE TABLE IF NOT EXISTS runs (
   error             TEXT
 );
 
+-- Slim identity registry: GitHub repo id -> stable identity. All stats live in
+-- repo_snapshots; nothing else about a repo is stored.
 CREATE TABLE IF NOT EXISTS repos (
-  id                BIGINT PRIMARY KEY,
-  full_name         TEXT NOT NULL UNIQUE,
-  owner             TEXT NOT NULL,
-  name              TEXT NOT NULL,
-  html_url          TEXT,
-  description       TEXT,
-  language          TEXT,
-  license           TEXT,
-  topics            TEXT[] NOT NULL DEFAULT '{}',
-  is_fork           BOOLEAN NOT NULL DEFAULT FALSE,
-  is_archived       BOOLEAN NOT NULL DEFAULT FALSE,
-  github_created_at TIMESTAMPTZ,
-  last_pushed_at    TIMESTAMPTZ,
-  first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  id            BIGINT PRIMARY KEY,
+  full_name     TEXT NOT NULL UNIQUE,
+  owner         TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  html_url      TEXT,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS repos_owner_idx ON repos (owner);
 
+-- The time series: one row per repo per run, numeric stats only.
 CREATE TABLE IF NOT EXISTS repo_snapshots (
-  id           BIGSERIAL PRIMARY KEY,
-  repo_id      BIGINT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-  run_id       TEXT   NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
-  captured_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  stars        INT NOT NULL DEFAULT 0,
-  forks        INT NOT NULL DEFAULT 0,
-  open_issues  INT NOT NULL DEFAULT 0,
-  watchers     INT,
-  size_kb      INT
+  id            BIGSERIAL PRIMARY KEY,
+  repo_id       BIGINT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+  run_id        TEXT   NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+  captured_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  stars         INT NOT NULL DEFAULT 0,
+  forks         INT NOT NULL DEFAULT 0,
+  open_issues   INT NOT NULL DEFAULT 0,
+  watchers      INT,
+  collaborators INT,
+  size_kb       INT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS repo_snapshots_repo_run_uq ON repo_snapshots (repo_id, run_id);
 CREATE INDEX IF NOT EXISTS repo_snapshots_captured_idx ON repo_snapshots (repo_id, captured_at DESC);
+
+-- Migrations for installs created before the stats-only scope (all idempotent).
+ALTER TABLE repos DROP COLUMN IF EXISTS description;
+ALTER TABLE repos DROP COLUMN IF EXISTS language;
+ALTER TABLE repos DROP COLUMN IF EXISTS license;
+ALTER TABLE repos DROP COLUMN IF EXISTS topics;
+ALTER TABLE repos DROP COLUMN IF EXISTS is_fork;
+ALTER TABLE repos DROP COLUMN IF EXISTS is_archived;
+ALTER TABLE repos DROP COLUMN IF EXISTS github_created_at;
+ALTER TABLE repos DROP COLUMN IF EXISTS last_pushed_at;
+ALTER TABLE repo_snapshots ADD COLUMN IF NOT EXISTS collaborators INT;
 `;
 
 export async function ensureSchema() {
@@ -88,71 +95,52 @@ export async function ensureSchema() {
 }
 
 const UPSERT_REPO = `
-INSERT INTO repos (
-  id, full_name, owner, name, html_url, description, language, license,
-  topics, is_fork, is_archived, github_created_at, last_pushed_at, last_seen_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
+INSERT INTO repos (id, full_name, owner, name, html_url, last_seen_at)
+VALUES ($1,$2,$3,$4,$5, now())
 ON CONFLICT (id) DO UPDATE SET
   full_name = EXCLUDED.full_name,
   owner = EXCLUDED.owner,
   name = EXCLUDED.name,
   html_url = EXCLUDED.html_url,
-  description = EXCLUDED.description,
-  language = EXCLUDED.language,
-  license = EXCLUDED.license,
-  topics = EXCLUDED.topics,
-  is_fork = EXCLUDED.is_fork,
-  is_archived = EXCLUDED.is_archived,
-  github_created_at = EXCLUDED.github_created_at,
-  last_pushed_at = EXCLUDED.last_pushed_at,
   last_seen_at = now(),
   updated_at = now()
 RETURNING (xmax = 0) AS inserted
 `;
 
 const UPSERT_SNAPSHOT = `
-INSERT INTO repo_snapshots (repo_id, run_id, stars, forks, open_issues, watchers, size_kb)
-VALUES ($1,$2,$3,$4,$5,$6,$7)
+INSERT INTO repo_snapshots (repo_id, run_id, stars, forks, open_issues, watchers, collaborators, size_kb)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 ON CONFLICT (repo_id, run_id) DO UPDATE SET
   stars = EXCLUDED.stars,
   forks = EXCLUDED.forks,
   open_issues = EXCLUDED.open_issues,
   watchers = EXCLUDED.watchers,
+  collaborators = EXCLUDED.collaborators,
   size_kb = EXCLUDED.size_kb,
   captured_at = now()
 `;
 
-// GitHub API repo object -> repos row values
+// GitHub API repo object -> repos row values (identity only)
 export function toRepoRow(r) {
-  const license = r.license && r.license.spdx_id && r.license.spdx_id !== 'NOASSERTION'
-    ? r.license.spdx_id
-    : null;
   return [
     r.id,
     r.full_name,
     (r.owner && r.owner.login) || '',
     r.name,
     r.html_url ?? null,
-    r.description ?? null,
-    r.language ?? null,
-    license,
-    r.topics ?? [],
-    !!r.fork,
-    !!r.archived,
-    r.created_at ?? null,
-    r.pushed_at ?? null,
   ];
 }
 
-// list response (+ optional detail response) -> snapshot metrics
-export function toMetrics(r, detail) {
-  const d = detail || {};
+// list response (+ optional stats pass) -> snapshot metrics. Numeric only.
+export function toMetrics(r, extra) {
+  const e = extra || {};
   return {
-    stars: d.stargazers_count ?? r.stargazers_count ?? 0,
-    forks: d.forks_count ?? r.forks_count ?? 0,
-    openIssues: d.open_issues_count ?? r.open_issues_count ?? 0,
-    watchers: d.subscribers_count ?? null,
-    sizeKb: d.size ?? r.size ?? null,
+    stars: r.stargazers_count ?? 0,
+    forks: r.forks_count ?? 0,
+    openIssues: r.open_issues_count ?? 0,
+    watchers: e.watchers ?? null,
+    collaborators: e.collaborators ?? null,
+    sizeKb: r.size ?? null,
   };
 }
 
@@ -175,6 +163,7 @@ export async function flushBuffer(entries, runId) {
         metrics.forks,
         metrics.openIssues,
         metrics.watchers,
+        metrics.collaborators,
         metrics.sizeKb,
       ]);
     }

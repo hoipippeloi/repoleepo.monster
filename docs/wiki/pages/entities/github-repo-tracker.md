@@ -19,7 +19,7 @@ Its role: turn GitHub repo metrics into a time series. Every Sunday (`0 3 * * 0`
 - **Data model**: `repos` (current state), `repo_snapshots` (time series, unique `(repo_id, run_id)`), `runs` (audit). Schema auto-applies via `CREATE TABLE IF NOT EXISTS` — see `sql/schema.sql`, analysis recipes in `sql/queries.sql`
 - **Configuration**: all env — `DATABASE_URL` (Railway reference `${{ Postgres.DATABASE_URL }}` for internal networking), `GITHUB_TOKEN`, `GITHUB_OWNERS` (org/user listing, no cap), `GITHUB_SEARCH_QUERIES` (capped at 1,000 results/query by GitHub), `FETCH_DETAILS`, `DRY_RUN`, `INCLUDE_FORKS`/`INCLUDE_ARCHIVED`
 - **Dependencies**: Node ≥ 20, single runtime dep `pg`. Dockerfile on `node:22-slim`; `railway.json` sets ON_FAILURE restart policy (max 3) so a failed weekly run retries instead of waiting a week
-- [railway-cron-internal-networking](./railway-cron-internal-networking.md) — deployment pattern it relies on
+- [railway-cron-internal-networking](../concepts/railway-cron-internal-networking-pattern.md) — deployment pattern it relies on
 
 ## Lifecycle
 

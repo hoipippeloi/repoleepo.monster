@@ -1,9 +1,10 @@
 # GitHub Repo Tracker
 
 A tiny, cheap harvester that runs weekly on [Railway](https://railway.com), pulls repos from
-the GitHub API, **upserts** them into your existing Postgres, and writes one **metrics
-snapshot per repo per run** — so every number (stars, forks, open issues, watchers, size)
-becomes a time series.
+the GitHub API, **upserts** them into your existing Postgres, and writes one **stats
+snapshot per repo per run** — so every number (collaborators, stars, forks, watchers,
+open issues) becomes a time series. Repo metadata and dev/commit activity are
+intentionally not stored: numeric repo stats only.
 
 Zero-config ops: the app creates its own schema on first run, is idempotent (re-running the
 same day never duplicates data), and exits cleanly when done — exactly what Railway's Cron
@@ -60,7 +61,7 @@ updates never touch existing data.
 | `GITHUB_SEARCH_QUERIES` | empty | One GitHub search query per line (`;` also separates). |
 | `INCLUDE_FORKS` | `0` | Also track forks. |
 | `INCLUDE_ARCHIVED` | `1` | Keep snapshotting archived repos (keeps their history continuous). |
-| `FETCH_DETAILS` | `0` | One extra API call per repo to also capture `watchers` (subscribers). Worth it for ≤ a few thousand repos. |
+| `FETCH_DETAILS` | `1` | Per repo: 2 extra API calls → `watchers` (subscribers) + `collaborators` (contributor count). Turn off for very large sets (>50k repos). |
 | `DRY_RUN` | `0` | List what *would* be upserted; no DB needed. Perfect for testing config. |
 | `BATCH_SIZE` | `500` | Rows per DB transaction. |
 | `MODE` | `cron` | `cron` = run once and exit. `web` = always-on server with manual trigger. |
@@ -89,11 +90,17 @@ curl -X POST -H "Authorization: Bearer some-secret" http://localhost:8080/run
 
 ## Data model
 
-- **`repos`** — one row per GitHub repo (keyed by GitHub's stable repo id), refreshed every
-  run: name, owner, description, language, license, topics, fork/archived flags, push dates.
-- **`repo_snapshots`** — **the time series**: `stars`, `forks`, `open_issues`, `watchers`,
-  `size_kb` per repo per run (`run_id` = UTC date). Unique on `(repo_id, run_id)`.
+- **`repos`** — slim identity registry, one row per GitHub repo (keyed by GitHub's stable
+  repo id): name, owner, URL. No metadata, no dev activity — just identity + timestamps.
+- **`repo_snapshots`** — **the time series**: numeric stats only — `stars`, `forks`,
+  `open_issues`, `watchers`, `collaborators`, `size_kb` per repo per run (`run_id` = UTC
+  date). Unique on `(repo_id, run_id)`.
 - **`runs`** — audit log per run: status, counts, errors.
+
+> **Where "collaborators" comes from:** GitHub only exposes the true collaborator list to
+> accounts with push access to a repo. For public tracking, the app counts public
+> **contributors** instead — one request per repo (page-count trick on the contributors
+> endpoint). For your own repos the two largely overlap.
 
 Ready-made analysis queries (weekly deltas, top gainers, run history) live in
 [`sql/queries.sql`](sql/queries.sql). Railway's dashboard can run them directly
@@ -103,8 +110,9 @@ Ready-made analysis queries (weekly deltas, top gainers, run history) live in
 
 - The cron service only exists for the minutes it runs each week — **pennies per month** on
   Railway's usage-based billing. The Postgres database is the one you already pay for.
-- GitHub API is free; 5,000 req/h with a token covers ~500k repos/week at one request per
-  100 repos (no `FETCH_DETAILS`).
+- GitHub API is free; 5,000 req/h with a token covers ~1,600 repos/hour with
+  `FETCH_DETAILS` on (3 calls per repo), or ~500k repos/hour with it off (1 call per
+  100 repos).
 - Storage: 100k repos ≈ 5.2M snapshot rows/year ≈ a few hundred MB. Fine on any plan;
   if you track millions of repos, consider pruning old snapshots.
 

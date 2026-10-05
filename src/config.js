@@ -20,7 +20,9 @@ export const config = {
   includeForks: bool(process.env.INCLUDE_FORKS, false),
   // Archived repos keep getting snapshots so their time series stays continuous.
   includeArchived: bool(process.env.INCLUDE_ARCHIVED, true),
-  fetchDetails: bool(process.env.FETCH_DETAILS, false),
+  // On by default: collaborators + watchers are headline stats. Turn off for
+  // very large sets (>50k repos) to run 3x faster on the API budget.
+  fetchDetails: bool(process.env.FETCH_DETAILS, true),
   dryRun: bool(process.env.DRY_RUN, false),
   mode: (process.env.MODE || 'cron').toLowerCase(), // cron | web
   port: Number(process.env.PORT || 8080),

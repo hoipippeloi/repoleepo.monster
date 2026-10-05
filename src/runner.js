@@ -3,7 +3,7 @@
 // is idempotent (snapshots upsert instead of duplicate).
 
 import { config } from './config.js';
-import { collectRepos, fetchDetail } from './github.js';
+import { collectRepos, fetchStats } from './github.js';
 import * as db from './db.js';
 
 const log = (...a) => console.log(new Date().toISOString(), '[runner]', ...a);
@@ -38,13 +38,13 @@ export async function runOnce() {
 
   try {
     for await (const raw of collectRepos()) {
-      const detail = config.fetchDetails
-        ? await fetchDetail(raw.full_name).catch((e) => {
-            log(`detail fetch failed for ${raw.full_name}: ${e.message}`);
+      const extra = config.fetchDetails
+        ? await fetchStats(raw.full_name).catch((e) => {
+            log(`stats fetch failed for ${raw.full_name}: ${e.message}`);
             return null;
           })
         : null;
-      buffer.push({ repoRow: db.toRepoRow(raw), metrics: db.toMetrics(raw, detail) });
+      buffer.push({ repoRow: db.toRepoRow(raw), metrics: db.toMetrics(raw, extra) });
       stats.seen++;
       if (buffer.length >= config.batch) {
         await flush();
