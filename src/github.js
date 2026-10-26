@@ -16,8 +16,9 @@ const log = (...a) => console.log(new Date().toISOString(), '[github]', ...a);
 
 // Search API budget: 30 req/min with a token, 10/min without. Core endpoints
 // (list, repos) are limited per-hour and throttled via the remaining/reset
-// headers; search is per-minute, so we pace it here.
-const searchIntervalMs = () => (config.githubToken ? 2100 : 6500);
+// headers; search is per-minute, so we pace it here. 3s (~20/min) keeps us
+// clear of GitHub's secondary rate limits during multi-hour sweeps.
+const searchIntervalMs = () => (config.githubToken ? 3000 : 6500);
 
 function authHeaders() {
   return {
@@ -99,7 +100,11 @@ async function pagedSearch(query) {
   const out = [];
   for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
     const q = encodeURIComponent(query);
-    const res = await ghJson(`/search/repositories?q=${q}&per_page=100&page=${page}&sort=stars&order=desc`);
+    const res = await ghJsonGraceful(
+      `/search/repositories?q=${q}&per_page=100&page=${page}&sort=stars&order=desc`,
+      `search "${query}" page ${page}`
+    );
+    if (res === undefined) break; // refused mid-pagination: keep what we have
     if (!res || !Array.isArray(res.items)) break;
     out.push(...res.items);
     log(`  search page ${page}: +${res.items.length} (total ${out.length} of ${res.total_count})`);
@@ -149,6 +154,10 @@ export async function* collectSlicedSearch(query) {
 async function* searchRange(baseQuery, bounds, a, b, depth = 0) {
   const q = baseQuery.replace(bounds.token, `created:${a}..${b}`);
   const total = await searchTotalCount(q);
+  if (total < 0) {
+    log(`WARNING: slice ${a}..${b} skipped entirely (GitHub kept refusing) — next run fills it`);
+    return;
+  }
   log(`  slice ${a}..${b}: ${total} repos`);
   if (total === 0) return;
   if (total > SEARCH_SAFE_TOTAL && a !== b && depth < 24) {
@@ -165,17 +174,35 @@ async function* searchRange(baseQuery, bounds, a, b, depth = 0) {
 
 async function* searchPages(query) {
   for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
-    const res = await ghJson(
-      `/search/repositories?q=${encodeURIComponent(query)}&per_page=100&page=${page}&sort=stars&order=desc`
+    const res = await ghJsonGraceful(
+      `/search/repositories?q=${encodeURIComponent(query)}&per_page=100&page=${page}&sort=stars&order=desc`,
+      `page ${page} of "${query}"`
     );
+    if (res === undefined) return; // refused mid-slice: keep what we have
     if (!res || !Array.isArray(res.items) || res.items.length === 0) break;
     for (const r of res.items) yield r;
     if (res.items.length < 100) break;
   }
 }
 
+// Wrapper that turns a persistent GitHub error (e.g. 403 after retries) into a
+// logged skip instead of a thrown error — a multi-hour sweep must never die on
+// one refused request. Returns undefined to signal "give up on this request".
+async function ghJsonGraceful(pathOrUrl, label) {
+  try {
+    return await ghJson(pathOrUrl);
+  } catch (err) {
+    log(`WARNING: ${label} — ${err.message.split('\n')[0]} — skipping; the next run fills the gap`);
+    return undefined;
+  }
+}
+
 async function searchTotalCount(query) {
-  const res = await ghJson(`/search/repositories?q=${encodeURIComponent(query)}&per_page=1`);
+  const res = await ghJsonGraceful(
+    `/search/repositories?q=${encodeURIComponent(query)}&per_page=1`,
+    `total-count probe for "${query}"`
+  );
+  if (res === undefined) return -1; // skipped
   return res ? (res.total_count ?? 0) : 0;
 }
 

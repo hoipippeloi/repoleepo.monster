@@ -8,10 +8,11 @@ okf_version: "0.1"
 Auto-generated digest of the most recent conventions, decisions, rules and
 development patterns, plus architecture and global patterns — newest first.
 The actual files live in the wiki subfolders; follow the links (clickable in /wiki).
-Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-12T08:04:06.455Z.
+Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-26T10:47:57.465Z.
 
 ## Recent Decisions
 
+- [Repo identity is the GitHub id alone — full_name is not unique](decisions/repo-identity-is-the-github-id-alone-full-name-is-not-unique.md) — **Context.** On 2026-10-26, six consecutive weekly sweeps of the [[github-repo-tracker]] (Oct 18, 19, 20, 23, 24, 25) had failed at the same… (2026-10-26)
 - [Tracker coverage band: 50–5,000 stars (stars:50..5000)](decisions/tracker-coverage-band-50-5-000-stars-stars-50-5000.md) — **Context.** [[github-repo-tracker]] had a coverage threshold of "all public repos with >50 stars" (implemented as `GITHUB_SLICED_SEARCH=cre… (2026-10-05)
 - [GITHUB_SLICED_SEARCH: date-window sliced search beats the 1,000-result cap](decisions/github-sliced-search-date-window-sliced-search-beats-the-1-0.md) — **Context.** [tracker-coverage-threshold-all-public-repos-with-50-stars](../decisions/tracker-coverage-threshold-all-public-repos-with-50-st… (2026-10-05)
 - [Tracker drops collaborators; FETCH_DETAILS back to opt-in watchers-only](decisions/tracker-drops-collaborators-fetch-details-back-to-opt-in-wat.md) — **Context.** [tracker-scope-numeric-repo-stats-only](../decisions/tracker-scope-numeric-repo-stats-only.md) (earlier the same day) kept a `c… (2026-10-05)
@@ -21,11 +22,14 @@ Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-12T08
 
 ## Active Rules
 
+- [Bulk ingestion: one bad row must never abort the batch or the sweep](rules/bulk-ingestion-one-bad-row-must-never-abort-the-batch-or-the.md) — **Guideline.** Any bulk upsert/insert pipeline that sweeps an external source must be written so a single malformed or conflicting row canno… (2026-10-26)
 - [Stage Railway variables with --skip-deploys; deploy once deliberately after config is complete](rules/stage-railway-variables-with-skip-deploys-deploy-once-delibe.md) — **Guideline:** when configuring a Railway service whose deploy immediately *executes the job* (cron-style runners like the [[github-repo-tra… (2026-10-05)
 - [Verify endpoint semantics match the user's stated goal before building a data source](rules/verify-endpoint-semantics-match-the-user-s-stated-goal-befor.md) — The guideline (2026-10-05)
 
 ## Recent Learnings — development patterns
 
+- [GitHub delete+recreate: same full_name, new repo id — and the deterministic death-zone tell](learnings/github-delete-recreate-same-full-name-new-repo-id-and-the-de.md) — **Discovered 2026-10-26** while post-morteming six consecutive failed sweeps of the [[github-repo-tracker]] (Oct 18/19/20/23/24/25, each dyi… (2026-10-26)
+- [Redeploy does not start a cron run; ensureSchema migrations apply only at job start](learnings/redeploy-does-not-start-a-cron-run-ensureschema-migrations-a.md) — **Verified 2026-10-26** on the [[github-repo-tracker]] (Railway project `03d94f9a`, deployment `3da111c0`). (2026-10-26)
 - [Railway cron skip-warning is cosmetic here — stuck "Running..." execution display doesn't block new runs (verified live)](learnings/railway-cron-skip-warning-is-cosmetic-here-stuck-running-exe.md) — **Verified live 2026-10-12** on the [[github-repo-tracker]] (project 03d94f9a), after the user spotted Railway's "Recent Executions" panel l… (2026-10-12)
 - [Railway cron containers exit by design — deployment uptime is not job runtime](learnings/railway-cron-containers-exit-by-design-deployment-uptime-is-.md) — **Gotcha observed 2026-10-11** when the user reported the [[github-repo-tracker]] "running for 28 hours and going" on Railway (project 03d94… (2026-10-12)
 - [Querying the internal-only Railway Postgres: ssh into the Postgres service; keys are account-scoped, ~ paths don't expand](learnings/querying-the-internal-only-railway-postgres-ssh-into-the-pos.md) — **Discovered 2026-10-11** while trying to query run durations for the [[github-repo-tracker]] from a laptop against the Railway Postgres (pr… (2026-10-12)
