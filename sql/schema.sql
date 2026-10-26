@@ -10,15 +10,18 @@ CREATE TABLE IF NOT EXISTS runs (
   repos_seen        INT NOT NULL DEFAULT 0,
   repos_created     INT NOT NULL DEFAULT 0,
   repos_updated     INT NOT NULL DEFAULT 0,
+  repos_skipped     INT NOT NULL DEFAULT 0,
   snapshots_written INT NOT NULL DEFAULT 0,
   error             TEXT
 );
 
 -- Slim identity registry: GitHub repo id -> stable identity. All stats live
 -- in repo_snapshots; nothing else about a repo is stored.
+-- full_name is NOT unique: GitHub repos can be deleted and recreated under the
+-- same name (new id, same name). Identity is the GitHub id alone.
 CREATE TABLE IF NOT EXISTS repos (
   id            BIGINT PRIMARY KEY,            -- GitHub repo id (stable across renames)
-  full_name     TEXT NOT NULL UNIQUE,
+  full_name     TEXT NOT NULL,
   owner         TEXT NOT NULL,
   name          TEXT NOT NULL,
   html_url      TEXT,
@@ -27,6 +30,7 @@ CREATE TABLE IF NOT EXISTS repos (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS repos_owner_idx ON repos (owner);
+CREATE INDEX IF NOT EXISTS repos_full_name_idx ON repos (full_name);
 
 -- The time series: one row per repo per run, numeric stats only.
 CREATE TABLE IF NOT EXISTS repo_snapshots (
@@ -43,7 +47,9 @@ CREATE TABLE IF NOT EXISTS repo_snapshots (
 CREATE UNIQUE INDEX IF NOT EXISTS repo_snapshots_repo_run_uq ON repo_snapshots (repo_id, run_id);
 CREATE INDEX IF NOT EXISTS repo_snapshots_captured_idx ON repo_snapshots (repo_id, captured_at DESC);
 
--- Migrations for installs created before the stats-only scope (all idempotent).
+-- Migrations for installs created before later changes (all idempotent).
+ALTER TABLE repos DROP CONSTRAINT IF EXISTS repos_full_name_key;
+CREATE INDEX IF NOT EXISTS repos_full_name_idx ON repos (full_name);
 ALTER TABLE repos DROP COLUMN IF EXISTS description;
 ALTER TABLE repos DROP COLUMN IF EXISTS language;
 ALTER TABLE repos DROP COLUMN IF EXISTS license;
@@ -53,3 +59,4 @@ ALTER TABLE repos DROP COLUMN IF EXISTS is_archived;
 ALTER TABLE repos DROP COLUMN IF EXISTS github_created_at;
 ALTER TABLE repos DROP COLUMN IF EXISTS last_pushed_at;
 ALTER TABLE repo_snapshots DROP COLUMN IF EXISTS collaborators;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS repos_skipped INT NOT NULL DEFAULT 0;

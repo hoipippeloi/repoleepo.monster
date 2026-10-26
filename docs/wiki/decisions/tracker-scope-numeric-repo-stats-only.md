@@ -3,7 +3,7 @@ type: Decision
 title: "Tracker scope: numeric repo stats only"
 description: "**Context.** The GitHub Repo Tracker initially stored repo metadata alongside metric snapshots: description, language, license, topics, fork/archived flags, Git"
 tags: [scope, data-model]
-status: accepted
+status: superseded
 supersedes: "[]"
 timestamp: "2026-10-05T17:42:57.887Z"
 ---

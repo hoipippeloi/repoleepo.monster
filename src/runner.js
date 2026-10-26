@@ -10,7 +10,7 @@ const log = (...a) => console.log(new Date().toISOString(), '[runner]', ...a);
 
 export async function runOnce() {
   const runId = new Date().toISOString().slice(0, 10);
-  const stats = { seen: 0, created: 0, updated: 0, snapshots: 0 };
+  const stats = { seen: 0, created: 0, updated: 0, skipped: 0, snapshots: 0 };
 
   if (config.dryRun) {
     const sample = [];
@@ -32,6 +32,7 @@ export async function runOnce() {
     const res = await db.flushBuffer(buffer, runId);
     stats.created += res.created;
     stats.updated += res.updated;
+    stats.skipped += res.skipped;
     stats.snapshots += buffer.length;
     buffer.length = 0;
   };
@@ -48,7 +49,7 @@ export async function runOnce() {
       stats.seen++;
       if (buffer.length >= config.batch) {
         await flush();
-        log(`progress: seen=${stats.seen} created=${stats.created} updated=${stats.updated} snapshots=${stats.snapshots}`);
+        log(`progress: seen=${stats.seen} created=${stats.created} updated=${stats.updated} skipped=${stats.skipped} snapshots=${stats.snapshots}`);
       }
     }
     await flush();

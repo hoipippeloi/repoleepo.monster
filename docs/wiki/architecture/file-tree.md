@@ -2,29 +2,35 @@
 type: Artifact
 title: File tree
 description: Complete project file listing with per-file descriptions.
-timestamp: "2026-10-05T17:10:53.541Z"
+timestamp: "2026-10-12T07:48:11.188Z"
 ---
 
-# File tree — generated 2026-10-05T17:10:53.541Z
-# Respects .wiki_ignore exclusions.
+# File tree — regenerated 2026-10-12T07:48:11.188Z
+# Respects .wiki_ignore exclusions (node_modules, dist, build, .next, .cache, __pycache__, .DS_Store, wiki internals).
 # [description] — shorthand summary of each file's function
 
 .
+├── .dockerignore — Docker build context exclusions
+├── .env.example — Template for all [[github-repo-tracker]] env vars: DATABASE_URL (use the Railway reference ${{ Postgres.DATABASE_URL }}), GITHUB_TOKEN (classic PAT, no scopes; 60→5000 req/h), the three source vars (GITHUB_SOURCE_SELF, GITHUB_OWNERS, GITHUB_SEARCH_QUERIES), GITHUB_SLICED_SEARCH (requires created:>=DATE or A..B bound; supports star bands like stars:50..5000), filters (INCLUDE_FORKS=0, INCLUDE_ARCHIVED=1, FETCH_DETAILS=0, DRY_RUN), and web-mode vars (MODE=cron, RUN_TOKEN)
+├── .gitignore — Git exclusion patterns
+├── .mcp.json — MCP server configuration for agent tooling in this workspace
 ├── .pi/ — Pi coding agent's project-local state directory
-│   └── todos/ — File-based todo storage for the pi agent (one markdown file per task, TODO-<hex>); currently empty
+│   └── todos/ — File-based todo storage for the pi agent (one markdown file per task, TODO-<hex>)
+├── .wiki_ignore — Exclusion patterns for wiki staleness detection (wiki itself, build/cache dirs)
+├── Dockerfile — Tracker container image: node:22-slim, single runtime dep pg
+├── package.json — Node ≥20 project manifest (single runtime dependency: pg)
+├── package-lock.json — Locked dependency tree
+├── railway.json — Railway service config: cron schedule `0 3 * * 0` (Sundays 03:00 UTC), ON_FAILURE restart policy (max 3)
+├── README.md — Tracker usage/setup documentation
 ├── docs/ — Project documentation root
-│   └── wiki/ — OKF v0.1 knowledge wiki bundle documenting this project
-│       ├── index.md — Wiki entry point; links to overview, file tree, glossary, and pages
-│       ├── overview.md — System overview: what the project contains and how it is organized
-│       ├── glossary.md — Key project terms and definitions
-│       ├── architecture/ — Architecture documentation
-│       │   └── file-tree.md — Artifact: complete annotated project file listing (this file)
-│       ├── last_updated.md — Sync timestamp consumed by wiki staleness detection
-│       ├── log.md — Running changelog of wiki updates
-│       └── pages/ — Knowledge graph: concepts, entities, and artifacts
-│           ├── index.md — Pages index linking the three collections
-│           ├── TEMPLATES.md — Reference templates for Concept, Entity, and Artifact pages
-│           ├── concepts/ — Abstract ideas, definitions, categories (empty, awaiting first pages)
-│           ├── entities/ — Concrete named things: systems, tools, records (empty, awaiting first pages)
-│           └── artifacts/ — Documents, diagrams, code files, deliverables (empty, awaiting first pages)
-└── .wiki_ignore — Exclusion patterns for wiki staleness detection (wiki itself, build/cache dirs)
+│   └── wiki/ — OKF v0.1 knowledge wiki bundle documenting this project (index.md, overview.md, glossary.md, architecture/, log.md, last_updated.md, changelog/, pages/, wiki-viewer.html, wiki.js)
+├── sql/ — [[github-repo-tracker]] database DDL/queries (applied to the project's Railway Postgres)
+│   ├── schema.sql — Tables: repos (identity, keyed by GitHub's stable repo id) and repo_snapshots (one metric row per repo per run; unique (repo_id, run_id)); runs
+│   └── queries.sql — Supporting read queries
+└── src/ — Tracker source (6 modules; see [[github-repo-tracker]])
+    ├── index.js — Entry point: dispatches cron vs web mode
+    ├── config.js — Env var parsing/validation (sources, filters, DB, token)
+    ├── db.js — Postgres access: repo upserts, snapshot writes, run bookkeeping
+    ├── github.js — GitHub API client: /user/repos, /users/{owner}/repos, search; auth + rate-limit handling
+    ├── runner.js — Sweep orchestration incl. GITHUB_SLICED_SEARCH date-window slicing (every slice ≤ ~950 results, beating the 1,000-result search cap) and pacing (30 req/min with token)
+    └── web.js — Optional MODE=web HTTP server: /healthz + POST /run (Bearer RUN_TOKEN)

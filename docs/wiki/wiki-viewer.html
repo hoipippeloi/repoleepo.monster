@@ -233,6 +233,114 @@ timestamp: "2026-10-05T17:10:53.541Z"
 │           └── artifacts/ — Documents, diagrams, code files, deliverables (empty, awaiting first pages)
 └── .wiki_ignore — Exclusion patterns for wiki staleness detection (wiki itself, build/cache dirs)
 `,
+  "decisions/index.md": `# Decisions
+
+- [Tracker scope: numeric repo stats only](./tracker-scope-numeric-repo-stats-only.md) - **Context.** The GitHub Repo Tracker initially stored repo metadata alongside metric snapshots: description, language, license, topics, fork/archived flags, Git
+- [Tracker goal: harvest ALL public GitHub repos, not just the token account's](./tracker-goal-harvest-all-public-github-repos-not-just-the-to.md) - Context
+- [Tracker coverage threshold: all public repos with >50 stars](./tracker-coverage-threshold-all-public-repos-with-50-stars.md) - Context
+`,
+  "decisions/tracker-coverage-threshold-all-public-repos-with-50-stars.md": `---
+type: Decision
+title: "Tracker coverage threshold: all public repos with >50 stars"
+description: Context
+tags: [github, repo-tracker, scope, coverage-threshold, search-api, railway]
+status: accepted
+supersedes: "["tracker-goal-harvest-all-public-github-repos-not-just-the-to"]"
+timestamp: "2026-10-05T17:53:46.578Z"
+---
+
+# Tracker coverage threshold: all public repos with >50 stars
+
+## Context
+
+The prior decision [[tracker-goal-harvest-all-public-github-repos-not-just-the-to|Tracker goal: harvest ALL public GitHub repos]] left implementation **pending**, with coverage sizing explicitly flagged as the open question ("sized by how complete the user wants coverage to be vs. API rate limits"). It also established the hard constraint: GitHub has no endpoint listing all public repos, and \`GET /search/repositories\` hard-caps at **1,000 results per query**.
+
+In this session the user answered that question directly: **"then get all repos with more than 50 stars."** As of this decision, no code has landed yet (\`src/\` unchanged) — this records the chosen criterion, not a completed implementation.
+
+## The choice
+
+[[github-repo-tracker]]'s weekly discovery target is: **all public GitHub repos with more than 50 stars** (for all users, not just the token account). Implementation will be search-based (\`stars:>50\` in \`GITHUB_SEARCH_QUERIES\` or an equivalent dedicated source), refining the "all public repos" goal into an achievable corpus.
+
+## Alternatives considered
+
+- **Literal "all public repos"** — not implementable via the REST API (prior decision's constraint); hundreds of millions of repos with no enumeration endpoint.
+- **\`stars:>0\` sharding** — rejected for now: vastly larger corpus (tens of millions) for marginal value; 50 stars is the user's chosen quality bar.
+- **Keep per-owner sources as primary** — rejected: cannot enumerate all logins up front.
+
+## Rationale / how the 1k cap is beatable here
+
+Unlike "everything", the >50-star corpus IS completely enumerable within the search cap: GitHub search accepts star **ranges** (\`stars:50..60\`), so recursive range-splitting (halve any range whose query returns ≥ 1,000 results) yields complete coverage of every repo above the threshold. Star ranges are dense only in the low hundreds, so the tree is shallow. This is the technique the implementation should use; naive \`stars:>50\` alone silently truncates at 1,000.
+
+## Consequences
+
+- Pending work: implement the sharded \`stars:>50\` discovery source (config knob, e.g. \`MIN_STARS\`), then update the [[github-repo-tracker]] entity page — its "update once the all-repos source is implemented" trigger fires then, not now.
+- Expect a corpus in the hundreds of thousands — snapshot volume and weekly runtime still need a size estimate; \`FETCH_DETAILS\` default-ON (2 extra calls/repo) may need revisiting at this scale.
+- The earlier "harvest all public repos" goal is operationalized, not replaced: >50 stars is its practical approximation.
+`,
+  "decisions/tracker-goal-harvest-all-public-github-repos-not-just-the-to.md": `---
+type: Decision
+title: "Tracker goal: harvest ALL public GitHub repos, not just the token account's"
+description: Context
+tags: [github, repo-tracker, scope, data-source, railway]
+status: accepted
+supersedes: "["pages/entities/github-repo-tracker"]"
+timestamp: "2026-10-05T17:49:55.442Z"
+---
+
+# Tracker goal: harvest ALL public GitHub repos, not just the token account's
+
+## Context
+
+The user first asked to "store all public repos from https://api.github.com/user/repos each week", which was implemented as the \`GITHUB_SOURCE_SELF=1\` source (commit \`f72a9b9\`): fetch all public repos of the **token's own account**, same upsert + snapshot pipeline. The user then corrected the intent: **"no i want to get all github repos public from all users"** — the goal is every public repo on GitHub, not just their account's.
+
+## The choice
+
+Redefine [[github-repo-tracker]]'s source scope from "token account's repos" to **all public repos from all users**. \`GITHUB_SOURCE_SELF\` (f72a9b9) was built on a misread of intent and is demoted from "the chosen source" to, at most, an optional extra source — the primary source must target the whole public-repo space. Implementation is **pending** as of this decision.
+
+## Alternatives considered
+
+- **Keep \`/user/repos\` as the source** — rejected: it returns only what the token can access (own + collaborator + accessible org repos), fundamentally narrower than "all users".
+- **Enumerate \`/users/{owner}/repos\` per owner** — rejected as primary: requires knowing every login up front; no way to enumerate all users via that endpoint.
+
+## Rationale / hard constraint
+
+GitHub offers **no endpoint that lists all public repos** (see learning *GitHub repo-list endpoint semantics*). The only global-ish surface is \`GET /search/repositories\`, which GitHub **hard-caps at 1,000 results per query**. So "all public repos" can only be approximated — e.g. many batched search queries (by stars ranges, creation dates, languages) or an external enumeration stream. The 1k/query ceiling is the binding constraint any implementation must design around; "fetch everything" is not literally achievable via the REST API.
+
+## Consequences
+
+- The tracker's "Sources" contract changes: search-query-based coverage becomes the primary mechanism, sized by how complete the user wants coverage to be vs. API rate limits.
+- The [[github-repo-tracker]] entity page must be updated once the all-repos source is implemented (it currently documents \`GITHUB_SOURCE_SELF\` as "user's chosen source").
+- Expect many more repos in \`repos\`/\`repo_snapshots\` — snapshot volume and runtime per weekly cron run need a size estimate before choosing query batching.
+`,
+  "decisions/tracker-scope-numeric-repo-stats-only.md": `---
+type: Decision
+title: "Tracker scope: numeric repo stats only"
+description: "**Context.** The GitHub Repo Tracker initially stored repo metadata alongside metric snapshots: description, language, license, topics, fork/archived flags, Git"
+tags: [scope, data-model]
+status: accepted
+supersedes: "[]"
+timestamp: "2026-10-05T17:42:57.887Z"
+---
+
+# Tracker scope: numeric repo stats only
+
+**Context.** The GitHub Repo Tracker initially stored repo metadata alongside metric snapshots: description, language, license, topics, fork/archived flags, GitHub created date, last push date. The user clarified the goal: only numeric repo popularity/collaboration stats over time — collaborators, stars, forks, "these kind of stats" — explicitly not dev/commit activity.
+
+**Decision.** 2026-10-05: scope the tracker to numeric stats only.
+
+- \`repos\` is a slim identity registry (GitHub id, full_name, owner, name, html_url, timestamps).
+- \`repo_snapshots\` carries only numbers: stars, forks, open_issues, watchers, collaborators, size_kb.
+- Collaborators is sourced as the public **contributor count** (per_page=1 + Link-header page count, 1 req/repo), because GitHub's true collaborator list requires push access to the repo.
+- \`FETCH_DETAILS\` defaults ON so watchers + collaborators are captured by default; documented tradeoff (~1,600 repos/hour API budget) and off-switch for very large sets.
+- Idempotent \`DROP COLUMN IF EXISTS\` / \`ADD COLUMN IF NOT EXISTS\` migrations keep any already-initialized DB in sync.
+
+**Alternatives considered.**
+
+- Keep metadata columns "just in case" — rejected: user explicitly excluded non-stat data; columns cost storage and dilute the stats-only contract.
+- Use the true \`collaborators\` endpoint with contributor fallback — rejected: doubles request cost for every repo the account has no push access to (403s still count against rate limits).
+
+**Consequences.** Dropped fields can't be recovered from history (nothing was ever written back), so re-adding later is safe if requirements change. Analysis queries and docs updated to match.
+`,
   "glossary.md": `---
 type: Glossary
 title: Glossary
@@ -265,7 +373,7 @@ okf_version: "0.1"
 <!-- wiki-nav:start -->
 ## Navigation map
 
-Auto-generated detailed index of every docs/wiki/ concept — the map the LLM uses to locate information. 4 concept(s). Regenerated on init and on wiki_mark_synced. Generated 2026-10-05T17:11:55.968Z.
+Auto-generated detailed index of every docs/wiki/ concept — the map the LLM uses to locate information. 6 concept(s). Regenerated on init and on wiki_mark_synced. Generated 2026-10-05T17:27:38.685Z.
 
 Each entry: [title](concept-id.md) — description. Links are clickable in /wiki; pass the concept-id (link target minus .md) to wiki_get.
 
@@ -280,6 +388,8 @@ Each entry: [title](concept-id.md) — description. Links are clickable in /wiki
 
 ### Pages
 
+- [Railway Cron + Internal Networking Pattern](pages/concepts/railway-cron-internal-networking-pattern.md) — The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via int
+- [GitHub Repo Tracker](pages/entities/github-repo-tracker.md) — Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the
 - [Page Templates](pages/TEMPLATES.md) — Reference templates for Concept, Entity, and Artifact pages. Follow these when using wiki_note_page.
 <!-- wiki-nav:end -->
 
@@ -289,6 +399,119 @@ An [OKF](https://github.com/earendil-works/okf) bundle documenting this project.
 - [File tree](./architecture/file-tree.md) — Complete project file listing
 - [Glossary](./glossary.md) — Key terms for this project
 - [Pages](./pages/) — Concepts, entities, and artifacts of this project
+`,
+  "learnings/edit-batches-are-atomic-a-failed-edit-means-nothing-in-that-.md": `---
+type: Learning
+title: Edit batches are atomic — a failed edit means nothing in that batch landed
+description: "**Gotcha observed 2026-10-05** (scope-slim session on \`src/db.js\` + README): a multi-edit batch in which 2 of 4 edits failed to match left the other 2 edits **u"
+tags: [testing, gotcha, editing, workflow]
+timestamp: "2026-10-05T17:44:42.820Z"
+---
+
+# Edit batches are atomic — a failed edit means nothing in that batch landed
+
+**Gotcha observed 2026-10-05** (scope-slim session on \`src/db.js\` + README): a multi-edit batch in which 2 of 4 edits failed to match left the other 2 edits **unapplied as well** — batches are atomic, not "apply the ones that match". The assistant initially assumed the matched edits had landed and had to re-check the file to discover they hadn't.
+
+**Working method**: when any edit in a batch fails, treat the entire batch as failed — re-read the target file(s) and re-apply the survivors individually, rather than assuming partial success. Cheap to verify, expensive to assume.
+`,
+  "learnings/git-remote.md": `---
+type: Learning
+title: "Git remote: github.com/hoipippeloi/repoleepo.monster"
+description: "The workspace is published at **https://github.com/hoipippeloi/repoleepo.monster** — first push on 2026-10-05 created the \`main\` branch with upstream tracking s"
+tags: [github, git, railway, deployment, devops]
+timestamp: "2026-10-05T17:35:14.136Z"
+---
+
+# Git remote: github.com/hoipippeloi/repoleepo.monster
+
+The workspace is published at **https://github.com/hoipippeloi/repoleepo.monster** — first push on 2026-10-05 created the \`main\` branch with upstream tracking set up.
+
+What's in the repo: \`src/\`, \`sql/\`, \`Dockerfile\`, \`railway.json\`, \`README.md\`, and the \`docs/wiki\` knowledge base. Excluded via gitignore: \`node_modules/\`, \`.pi/\`, and env files.
+
+Why it matters: the intended deployment path is Railway "+ New → GitHub Repo" from this remote (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`, wiring \`DATABASE_URL = \${{ Postgres.DATABASE_URL }}\`), so GitHub \`main\` is the deploy source. When changing deploy-relevant files (\`Dockerfile\`, \`railway.json\`, \`sql/schema.sql\`), push to \`main\` for the changes to reach Railway.
+`,
+  "learnings/github-repo-list-endpoint-semantics-user-repos-vs-users-owne.md": `---
+type: Learning
+title: "GitHub repo-list endpoint semantics: /user/repos vs /users/{owner}/repos vs /search"
+description: "**Discovered 2026-10-05** when the user asked "are we fetching all repos from https://api.github.com/user/repos?" — these three endpoints look interchangeable b"
+tags: [github-api, endpoints, gotcha, repo-tracker]
+timestamp: "2026-10-05T17:44:42.821Z"
+---
+
+# GitHub repo-list endpoint semantics: /user/repos vs /users/{owner}/repos vs /search
+
+**Discovered 2026-10-05** when the user asked "are we fetching all repos from https://api.github.com/user/repos?" — these three endpoints look interchangeable but mean very different things:
+
+- \`GET /user/repos\` — repos the **authenticated token itself** can access (own + collaborated-on + org repos, depending on token scope); **can include private repos**. The tracker does NOT use this.
+- \`GET /users/{owner}/repos?type=all&per_page=100&page=N\` (fallback \`GET /orgs/{owner}/repos\`) — **public** repo list of a named login. Any login works, no special scope. This is what \`GITHUB_OWNERS\` drives (\`collectRepos\` in \`src/github.js\`). No result cap.
+- \`GET /search/repositories?q=...\` — public search results, hard-capped by GitHub at **1,000 results per query**. This is what \`GITHUB_SEARCH_QUERIES\` drives.
+
+**Implication if private repos are ever wanted**: would need a switch to \`/user/repos\` with a \`repo\`-scoped token (e.g. a \`GITHUB_SOURCE_SELF=1\` source type — proposed, not decided). Knock-on effects: the collaborators stat comes from the public **contributors** endpoint, which likely returns nothing for private repos, and private-repo stats would land in the same Postgres tables as public ones.
+
+**Rule of thumb**: \`/user/repos\` answers "what can *I* see", \`/users/{owner}/repos\` answers "what does *that login* publicly have".
+`,
+  "learnings/github-search-results-watchers-count-equals-stargazers-count.md": `---
+type: Learning
+title: "GitHub search results: watchers_count equals stargazers_count (not real watchers)"
+description: "**Discovered 2026-10-05** while auditing the user's example fetch script for the [[github-repo-tracker]]."
+tags: [github, gotcha, search-api, data-quality, github-repo-tracker]
+timestamp: "2026-10-05T17:59:05.163Z"
+---
+
+# GitHub search results: watchers_count equals stargazers_count (not real watchers)
+
+**Discovered 2026-10-05** while auditing the user's example fetch script for the [[github-repo-tracker]].
+
+In GitHub **search results** (\`GET /search/repositories\`), the \`watchers_count\` field is a long-standing GitHub quirk: it **always equals \`stargazers_count\`** — it is not the real watcher/subscriber count.
+
+Consequences for this project:
+
+- Do not read \`watchers_count\` from search payloads and store it as the \`watchers\` snapshot value — it would silently duplicate \`stars\` in \`repo_snapshots\`.
+- True watchers (subscribers) are only available from the **per-repo detail endpoint** (\`GET /repos/{owner}/{repo}\`, field \`subscribers_count\`), i.e. only when \`FETCH_DETAILS\` is on.
+
+Same class of trap as the collaborators gating recorded in [[tracker-scope-numeric-repo-stats-only]]: GitHub's list/search endpoints report placeholder values that look real but aren't — verify field semantics against the detail endpoint before storing them.
+`,
+  "learnings/index.md": `# Learnings
+
+- [Git remote: github.com/hoipippeloi/repoleepo.monster](./git-remote.md) - The workspace is published at **https://github.com/hoipippeloi/repoleepo.monster** — first push on 2026-10-05 created the \`main\` branch with upstream tracking s
+- [Edit batches are atomic — a failed edit means nothing in that batch landed](./edit-batches-are-atomic-a-failed-edit-means-nothing-in-that-.md) - **Gotcha observed 2026-10-05** (scope-slim session on \`src/db.js\` + README): a multi-edit batch in which 2 of 4 edits failed to match left the other 2 edits **u
+geable b
+- [Sliced-search sweep numbers: 142k-repo corpus fits weekly cron only with FETCH_DETAILS=0](./sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro.md) - **Discovered 2026-10-05** during live feasibility measurement of the proposed large-corpus sweep (\`created:>=2022-01-01 stars:>=100\`) for the [[github-repo-trac
+- [GitHub search results: watchers_count equals stargazers_count (not real watchers)](./github-search-results-watchers-count-equals-stargazers-count.md) - **Discovered 2026-10-05** while auditing the user's example fetch script for the [[github-repo-tracker]].
+`,
+  "learnings/sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro.md": `---
+type: Learning
+title: "Sliced-search sweep numbers: 142k-repo corpus fits weekly cron only with FETCH_DETAILS=0"
+description: "**Discovered 2026-10-05** during live feasibility measurement of the proposed large-corpus sweep (\`created:>=2022-01-01 stars:>=100\`) for the [[github-repo-trac"
+tags: [github, search-api, rate-limits, scaling, github-repo-tracker, slicing]
+timestamp: "2026-10-05T17:59:05.163Z"
+---
+
+# Sliced-search sweep numbers: 142k-repo corpus fits weekly cron only with FETCH_DETAILS=0
+
+**Discovered 2026-10-05** during live feasibility measurement of the proposed large-corpus sweep (\`created:>=2022-01-01 stars:>=100\`) for the [[github-repo-tracker]] — this quantifies the open size/FETCH_DETAILS questions left in [[tracker-coverage-threshold-all-public-repos-with-50-stars]].
+
+## Measured corpus sizes (live, 2026-10-05)
+
+- \`created:>=2022-01-01 stars:>=100\` → **142,457 repos**
+- \`created:>=2022-01-01 stars:>=50\` → 260,820 repos
+- One month slice (Jan 2022, ≥100★) → 2,735 repos; mid-2025 runs ~2,200/month → **monthly slices are too coarse** (each exceeds the 1,000-result cap), **weekly slices fit**
+- Star-range splitting (the technique recorded in the coverage decision) and **date-window slicing** are the two complementary axes; recursive halving until every slice's \`total_count\` ≤ ~950.
+
+## Cost model for a full weekly sweep
+
+- ~1,420 result pages + ~300–500 probe requests ≈ **~1,900 search calls** → at the search API's 30 req/min ≈ **65–75 min per sweep** — fits the existing Sunday cron, but search-request pacing must be added.
+- Storage: 142k repos × 52 weekly snapshots ≈ 7.4M rows/year — trivial for the project Postgres.
+
+## The real constraint: FETCH_DETAILS at scale
+
+- Watchers + contributor counts cost 2 calls/repo → ~284k calls/week for 142k repos ≈ **57 h on one 5,000 req/h token — infeasible weekly.**
+- Realistic options: \`FETCH_DETAILS=0\` for big sweeps (stats-only sweep costs ~3 calls/min — effectively free), keep details for a smaller/higher-threshold set, or spread the detail pass over ~8 tokens (~7 h).
+
+## Gotchas observed in the user's example script
+
+- A **rolling** window (\`created:>=today-730d\`) makes the target move every run — repos age out of the set. Slices and sweeps must use **fixed date bounds** (e.g. \`created:>=2022-01-01\`) for stable time-series and deterministic slicing.
+- The script saved only page 1 of search results: its query matched 642 repos but it silently wrote 100. Any sliced-search implementation must page and/or slice — never trust a single search page.
 `,
   "memory.md": `---
 okf_version: "0.1"
@@ -300,7 +523,25 @@ okf_version: "0.1"
 Auto-generated digest of the most recent conventions, decisions, rules and
 development patterns, plus architecture and global patterns — newest first.
 The actual files live in the wiki subfolders; follow the links (clickable in /wiki).
-Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-05T17:27:30.141Z.
+Regenerated on every wiki write and on wiki_mark_synced. Generated 2026-10-05T18:09:07.168Z.
+
+## Recent Decisions
+
+- [Tracker coverage threshold: all public repos with >50 stars](decisions/tracker-coverage-threshold-all-public-repos-with-50-stars.md) — Context (2026-10-05)
+- [Tracker goal: harvest ALL public GitHub repos, not just the token account's](decisions/tracker-goal-harvest-all-public-github-repos-not-just-the-to.md) — Context (2026-10-05)
+- [Tracker scope: numeric repo stats only](decisions/tracker-scope-numeric-repo-stats-only.md) — **Context.** The GitHub Repo Tracker initially stored repo metadata alongside metric snapshots: description, language, license, topics, fork… (2026-10-05)
+
+## Active Rules
+
+- [Verify endpoint semantics match the user's stated goal before building a data source](rules/verify-endpoint-semantics-match-the-user-s-stated-goal-befor.md) — The guideline (2026-10-05)
+
+## Recent Learnings — development patterns
+
+- [GitHub search results: watchers_count equals stargazers_count (not real watchers)](learnings/github-search-results-watchers-count-equals-stargazers-count.md) — **Discovered 2026-10-05** while auditing the user's example fetch script for the [[github-repo-tracker]]. (2026-10-05)
+- [Sliced-search sweep numbers: 142k-repo corpus fits weekly cron only with FETCH_DETAILS=0](learnings/sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro.md) — **Discovered 2026-10-05** during live feasibility measurement of the proposed large-corpus sweep (\`created:>=2022-01-01 stars:>=100\`) for th… (2026-10-05)
+- [GitHub repo-list endpoint semantics: /user/repos vs /users/{owner}/repos vs /search](learnings/github-repo-list-endpoint-semantics-user-repos-vs-users-owne.md) — **Discovered 2026-10-05** when the user asked "are we fetching all repos from https://api.github.com/user/repos?" — these three endpoints lo… (2026-10-05)
+- [Edit batches are atomic — a failed edit means nothing in that batch landed](learnings/edit-batches-are-atomic-a-failed-edit-means-nothing-in-that-.md) — **Gotcha observed 2026-10-05** (scope-slim session on \`src/db.js\` + README): a multi-edit batch in which 2 of 4 edits failed to match left t… (2026-10-05)
+- [Git remote: github.com/hoipippeloi/repoleepo.monster](learnings/git-remote.md) — The workspace is published at **https://github.com/hoipippeloi/repoleepo.monster** — first push on 2026-10-05 created the \`main\` branch with… (2026-10-05)
 
 ## Architecture
 
@@ -367,38 +608,48 @@ The Railway deployment pattern this project's tracker uses: services in the same
   "pages/entities/github-repo-tracker.md": `---
 type: Entity
 title: GitHub Repo Tracker
-description: Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the
+description: Weekly GitHub repo stats harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing 
 tags: [backend, data, railway, github]
-timestamp: "2026-10-05T17:27:30.135Z"
+timestamp: "2026-10-05T18:09:07.162Z"
 ---
 
 # GitHub Repo Tracker
 
-Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the project's Postgres over Railway private networking.
+Weekly GitHub repo stats harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the project's Postgres over Railway private networking. Remote: https://github.com/hoipippeloi/repoleepo.monster
 
-Its role: turn GitHub repo metrics into a time series. Every Sunday (\`0 3 * * 0\` UTC) it pulls repos from configured sources, upserts them into \`repos\`, writes one \`repo_snapshots\` row per repo (stars, forks, open_issues, watchers, size_kb), and logs the run in \`runs\`. Keyed by GitHub's stable repo id, so renames and cross-source duplicates are deduplicated; same-day reruns are idempotent.
+Scope: **numeric repo stats only** — stars, forks, watchers, open issues (+ size). No repo metadata, no dev/commit activity, no collaborator data (dropped 2026-10-05). See [tracker-scope-numeric-repo-stats-only](./tracker-scope-numeric-repo-stats-only.md) and [tracker-coverage-threshold-all-public-repos-with-50-stars](./tracker-coverage-threshold-all-public-repos-with-50-stars.md).
+
+Every Sunday (\`0 3 * * 0\` UTC) it pulls repos from the configured sources, upserts identity into \`repos\`, and writes one \`repo_snapshots\` row per repo per run (stars, forks, open_issues, watchers, size_kb; unique \`(repo_id, run_id)\`). Keyed by GitHub's stable repo id; same-day reruns are idempotent.
 
 ## Details
 
 - **Location**: repo root of \`E:/repoleepo.monster\` — \`src/\` (6 modules), \`sql/\`, \`Dockerfile\`, \`railway.json\`, \`README.md\`
-- **Interface**: \`MODE=cron\` (default) runs one harvest and exits cleanly (Railway cron requirement: process terminates, DB pool closed). \`MODE=web\` serves \`/healthz\` and \`POST /run\` (Bearer \`RUN_TOKEN\`) for manual triggering
-- **Data model**: \`repos\` (current state), \`repo_snapshots\` (time series, unique \`(repo_id, run_id)\`), \`runs\` (audit). Schema auto-applies via \`CREATE TABLE IF NOT EXISTS\` — see \`sql/schema.sql\`, analysis recipes in \`sql/queries.sql\`
-- **Configuration**: all env — \`DATABASE_URL\` (Railway reference \`\${{ Postgres.DATABASE_URL }}\` for internal networking), \`GITHUB_TOKEN\`, \`GITHUB_OWNERS\` (org/user listing, no cap), \`GITHUB_SEARCH_QUERIES\` (capped at 1,000 results/query by GitHub), \`FETCH_DETAILS\`, \`DRY_RUN\`, \`INCLUDE_FORKS\`/\`INCLUDE_ARCHIVED\`
-- **Dependencies**: Node ≥ 20, single runtime dep \`pg\`. Dockerfile on \`node:22-slim\`; \`railway.json\` sets ON_FAILURE restart policy (max 3) so a failed weekly run retries instead of waiting a week
+- **Sources** (combinable):
+  - \`GITHUB_SLICED_SEARCH\` — broad sweeps beyond the 1,000-result search cap: queries with a \`created:>=DATE\` (or \`A..B\`) bound are recursively split into date ranges until every slice has ≤ ~950 results. Added commit \`b0f111e\`; validated live: Jun-2025 \`stars:>=100\` → slices 592+542+(1092→570+522) = 2,226 repos, exact match
+  - \`GITHUB_SOURCE_SELF=1\` → \`/user/repos?visibility=public\` — public repos of the token's account; requires \`GITHUB_TOKEN\`
+  - \`GITHUB_OWNERS\` → \`/users/{owner}/repos\` (fallback \`/orgs/{owner}/repos\`) — any login, no cap
+  - \`GITHUB_SEARCH_QUERIES\` → capped at 1,000 results/query by GitHub
+- **Search pacing**: 30 req/min with token, 10/min without (auto-adjusts). A full 142k-repo sweep ≈ 1,900 search calls ≈ 65–75 min/week — see [sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro](./sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro.md)
+- **Interface**: \`MODE=cron\` (default) runs once and exits cleanly. \`MODE=web\` serves \`/healthz\` + \`POST /run\` (Bearer \`RUN_TOKEN\`)
+- **Configuration**: \`DATABASE_URL\` (reference \`\${{ Postgres.DATABASE_URL }}\`), \`GITHUB_TOKEN\`, source vars, \`FETCH_DETAILS\` (opt-in, watchers-only, 1 call/repo — keep off for big sweeps)
+- **Dependencies**: Node ≥ 20, single runtime dep \`pg\`; Dockerfile \`node:22-slim\`; ON_FAILURE restart policy (max 3)
 - [railway-cron-internal-networking](./railway-cron-internal-networking.md) — deployment pattern it relies on
 
 ## Lifecycle
 
 - First added: 2026-10-05 — built to track repo metrics over time for repoleepo.monster
-- Verification: live GitHub dry-runs (owner + search sources, fork filtering, pagination), web-mode auth checks; DB path not exercised locally (no Docker/Postgres on the build machine) — first Railway deploy is the e2e test
+- 2026-10-05: scope narrowed to stats-only (\`2b6099d\`); \`/user/repos\` self source added (\`f72a9b9\`)
+- 2026-10-05: collaborators stat dropped (per user); \`GITHUB_SLICED_SEARCH\` added for the ≥100★-since-2022 sweep (\`b0f111e\`)
+- Verification: live GitHub dry-runs for all four source types, sliced-search exact-count validation, web-mode auth checks; DB write path first exercised on first Railway deploy
 `,
   "pages/entities/index.md": `# Entities
 
 _Concrete named things will be listed here._
-- [GitHub Repo Tracker](./github-repo-tracker.md) - Weekly GitHub repo harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing to the
+- [GitHub Repo Tracker](./github-repo-tracker.md) - Weekly GitHub repo stats harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing 
 `,
   "pages/index.md": `
 - [Railway Cron + Internal Networking Pattern](./concepts/railway-cron-internal-networking-pattern.md) — The Railway deployment pattern this project's tracker uses: services in the same project + environment can talk over private networking with zero config via int
+- [GitHub Repo Tracker](./entities/github-repo-tracker.md) — Weekly GitHub repo stats harvester deployed as a Railway **Cron service** inside the existing project (project \`03d94f9a-ab01-420f-8509-9c06dbd2f9cd\`), writing 
 `,
   "pages/TEMPLATES.md": `---
 type: Concept
@@ -472,6 +723,34 @@ a stable structure so pages are consistent, skimmable, and well-linked.
 - Generated from: [what data, process, or session produced it]
 \`\`\`
 `,
+  "rules/index.md": `# Rules
+
+- [Verify endpoint semantics match the user's stated goal before building a data source](./verify-endpoint-semantics-match-the-user-s-stated-goal-befor.md) - The guideline
+`,
+  "rules/verify-endpoint-semantics-match-the-user-s-stated-goal-befor.md": `---
+type: Rule
+title: Verify endpoint semantics match the user's stated goal before building a data source
+description: The guideline
+tags: [github-api, requirements, data-source, communication, repo-tracker]
+timestamp: "2026-10-05T17:49:55.442Z"
+---
+
+# Verify endpoint semantics match the user's stated goal before building a data source
+
+## The guideline
+
+When a user request names or pastes a specific API endpoint as the requirement, verify what that endpoint **actually returns** against the goal the user **describes** before implementing. Name similarity ≠ semantic match. If the two diverge, confirm the intended scope in one sentence before writing code.
+
+## When it applies
+
+Any time a user request translates into a data source or integration surface — especially configuring sources for the [[github-repo-tracker]], where sources are defined by GitHub endpoints and env vars.
+
+## Rationale / evidence
+
+2026-10-05, twice in one day on the same endpoint: the user asked for "all public repos from https://api.github.com/user/repos". \`/user/repos\` actually answers "*what can this token see*" (own + collaborator + accessible org repos) — it sounds like "repos of users" but isn't. The assistant implemented \`GITHUB_SOURCE_SELF\` (f72a9b9) fetching the token account's repos; the user then corrected: "no i want to get all github repos public from all users" — a fundamentally different scope. An earlier session had already produced the endpoint-semantics learning for the same confusion. Checking semantics-against-intent up front (one clarifying sentence) would have saved a built-and-reversed commit.
+
+Rule of thumb from the learning: \`/user/repos\` = "what *I* can see", \`/users/{owner}/repos\` = "what *that login* publicly has", \`/search/repositories\` = "what matches this query (max 1,000)".
+`,
 };
 var WIKI_PAGES = [
     { path: "index.md", label: "Project Knowledge Wiki", group: "" },
@@ -479,13 +758,25 @@ var WIKI_PAGES = [
     { path: "memory.md", label: "Memory — the live contract", group: "" },
     { path: "overview.md", label: "Overview", group: "" },
     { path: "architecture/file-tree.md", label: "File tree", group: "Architecture" },
+    { path: "decisions/index.md", label: "Decisions", group: "Decisions" },
+    { path: "decisions/tracker-coverage-threshold-all-public-repos-with-50-stars.md", label: "Tracker coverage threshold: all public repos with >50 stars", group: "Decisions" },
+    { path: "decisions/tracker-goal-harvest-all-public-github-repos-not-just-the-to.md", label: "Tracker goal: harvest ALL public GitHub repos, not just the token account's", group: "Decisions" },
+    { path: "decisions/tracker-scope-numeric-repo-stats-only.md", label: "Tracker scope: numeric repo stats only", group: "Decisions" },
+    { path: "learnings/edit-batches-are-atomic-a-failed-edit-means-nothing-in-that-.md", label: "Edit batches are atomic — a failed edit means nothing in that batch landed", group: "Learnings" },
+    { path: "learnings/git-remote.md", label: "Git remote: github.com/hoipippeloi/repoleepo.monster", group: "Learnings" },
+    { path: "learnings/github-repo-list-endpoint-semantics-user-repos-vs-users-owne.md", label: "GitHub repo-list endpoint semantics: /user/repos vs /users/{owner}/repos vs /search", group: "Learnings" },
+    { path: "learnings/github-search-results-watchers-count-equals-stargazers-count.md", label: "GitHub search results: watchers_count equals stargazers_count (not real watchers)", group: "Learnings" },
+    { path: "learnings/index.md", label: "Learnings", group: "Learnings" },
+    { path: "learnings/sliced-search-sweep-numbers-142k-repo-corpus-fits-weekly-cro.md", label: "Sliced-search sweep numbers: 142k-repo corpus fits weekly cron only with FETCH_DETAILS=0", group: "Learnings" },
     { path: "pages/index.md", label: "Index", group: "Pages" },
     { path: "pages/TEMPLATES.md", label: "Page Templates", group: "Pages" },
     { path: "pages/artifacts/index.md", label: "Artifacts", group: "Pages / Artifacts" },
     { path: "pages/concepts/index.md", label: "Concepts", group: "Pages / Concepts" },
     { path: "pages/concepts/railway-cron-internal-networking-pattern.md", label: "Railway Cron + Internal Networking Pattern", group: "Pages / Concepts" },
     { path: "pages/entities/index.md", label: "Entities", group: "Pages / Entities" },
-    { path: "pages/entities/github-repo-tracker.md", label: "GitHub Repo Tracker", group: "Pages / Entities" }
+    { path: "pages/entities/github-repo-tracker.md", label: "GitHub Repo Tracker", group: "Pages / Entities" },
+    { path: "rules/index.md", label: "Rules", group: "Rules" },
+    { path: "rules/verify-endpoint-semantics-match-the-user-s-stated-goal-befor.md", label: "Verify endpoint semantics match the user's stated goal before building a data source", group: "Rules" }
 ];
 (function(){
 var a=document.getElementById("hljs-light"),d=document.getElementById("hljs-dark"),t=document.getElementById("themeToggle"),i=document.getElementById("themeIcon");

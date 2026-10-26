@@ -35,3 +35,5 @@ Unlike "everything", the >50-star corpus IS completely enumerable within the sea
 - Pending work: implement the sharded `stars:>50` discovery source (config knob, e.g. `MIN_STARS`), then update the [[github-repo-tracker]] entity page — its "update once the all-repos source is implemented" trigger fires then, not now.
 - Expect a corpus in the hundreds of thousands — snapshot volume and weekly runtime still need a size estimate; `FETCH_DETAILS` default-ON (2 extra calls/repo) may need revisiting at this scale.
 - The earlier "harvest all public repos" goal is operationalized, not replaced: >50 stars is its practical approximation.
+
+> **Update 2026-10-05:** implementation landed as `GITHUB_SLICED_SEARCH` with recursive **date-window** splitting (not star-range sharding, no `MIN_STARS` knob) — see [github-sliced-search-date-window-sliced-search-beats-the-1-0](./github-sliced-search-date-window-sliced-search-beats-the-1-0.md). The >50★ threshold itself stands (deployed suggestion is ≥100★; the ≥50★ variant is one env-var edit away).
